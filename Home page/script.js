@@ -2,81 +2,26 @@
    SMART MIND · script.js
    Acceso, agenda sin cruces, re-agendamiento, bloqueos,
    emergencias, estadísticas en vivo y catálogo.
-   Prototipo: los datos se guardan solo en este navegador.
+   Los datos viven en el servidor (API /api): la misma base
+   que usa el chatbot de WhatsApp.
    ========================================================= */
 'use strict';
 
 /* ---------------------------------------------------------
-   1. CONFIGURACIÓN (puedes editar estos valores)
+   1. CONFIGURACIÓN
    --------------------------------------------------------- */
 
-// Número del chatbot de WhatsApp: código de país + número, sin "+" ni espacios.
-const WHATSAPP_NUMERO = '573144914328';
-
-// Horario de la clínica, en minutos desde la medianoche.
-const HORARIO = {
-  apertura: 8 * 60,                 // 08:00
-  cierre: 17 * 60,                  // 17:00
-  almuerzoInicio: 12 * 60,          // 12:00
-  almuerzoFin: 13 * 60,             // 13:00
-  paso: 15,                         // bloques de 15 minutos
-  diasLaborables: [1, 2, 3, 4, 5, 6] // lunes a sábado (0 = domingo)
-};
-
-// Qué procedimientos puede hacer cada especialidad.
-const ESPECIALIDADES = {
-  general:     { nombre: 'Odontología general y estética', procs: ['val', 'lim', 'rx', 'res', 'ext', 'ble'] },
-  endodoncia:  { nombre: 'Endodoncia', procs: ['val', 'rx', 'end'] },
-  ortodoncia:  { nombre: 'Ortodoncia', procs: ['val', 'ort'] },
-  periodoncia: { nombre: 'Periodoncia', procs: ['val', 'lim', 'rx'] },
-  cirugia:     { nombre: 'Cirugía oral', procs: ['val', 'rx', 'ext'] }
-};
-
-// Catálogo inicial: duración rígida (múltiplos de 15 min) y tarifa en COP.
-const CATALOGO_BASE = {
-  val: { nombre: 'Valoración inicial',     duracion: 30, precio: 40000,  tipo: 'Diagnóstico' },
-  lim: { nombre: 'Limpieza dental',        duracion: 45, precio: 90000,  tipo: 'Preventivo' },
-  rx:  { nombre: 'Radiografía periapical', duracion: 15, precio: 30000,  tipo: 'Diagnóstico' },
-  res: { nombre: 'Resina (calza)',         duracion: 60, precio: 150000, tipo: 'Restaurativo' },
-  ext: { nombre: 'Extracción simple',      duracion: 45, precio: 130000, tipo: 'Cirugía' },
-  ble: { nombre: 'Blanqueamiento',         duracion: 60, precio: 350000, tipo: 'Estético' },
-  end: { nombre: 'Endodoncia (conducto)',  duracion: 90, precio: 450000, tipo: 'Especialidad' },
-  ort: { nombre: 'Control de ortodoncia',  duracion: 30, precio: 120000, tipo: 'Especialidad' }
-};
-
-const DOCTORES_BASE = [
-  { id: 'd1', nombre: 'Dra. Camila Restrepo', especialidad: 'general',    experiencia: 12, bio: 'Prevención, resinas y blanqueamiento. Atiende primeras consultas.' },
-  { id: 'd2', nombre: 'Dr. Andrés Villegas',  especialidad: 'endodoncia', experiencia: 15, bio: 'Tratamientos de conducto y manejo de dolor dental agudo.' },
-  { id: 'd3', nombre: 'Dra. Sofía Arango',    especialidad: 'ortodoncia', experiencia: 9,  bio: 'Brackets, alineadores y control de mordida en niños y adultos.' }
-];
-
-// Cuentas de prueba. En un sistema real, las contraseñas se validan en un servidor.
-const USUARIOS_BASE = [
-  { nombre: 'Dra. Camila Restrepo', correo: 'camila@smartmind.co', clave: 'demo1234', rol: 'odontologo', doctorId: 'd1' },
-  { nombre: 'Administración Smart Mind', correo: 'admin@smartmind.co', clave: 'admin1234', rol: 'admin', doctorId: null }
-];
-
-// Guía de especialistas para pacientes.
-const MOTIVOS = [
-  { motivo: 'Dolor fuerte o sensibilidad al frío o al calor', especialidad: 'endodoncia', detalle: 'Puede indicar que el nervio del diente está comprometido.' },
-  { motivo: 'Dientes desalineados o problemas de mordida', especialidad: 'ortodoncia', detalle: 'Brackets, alineadores y controles de ortodoncia.' },
-  { motivo: 'Limpieza, caries o revisión general', especialidad: 'general', detalle: 'Prevención, limpiezas y resinas para caries.' },
-  { motivo: 'Mejorar el color o la forma de mis dientes', especialidad: 'general', detalle: 'Blanqueamiento y resinas estéticas.' },
-  { motivo: 'Encías inflamadas o que sangran', especialidad: 'periodoncia', detalle: 'Tratamiento de encías y tejidos de soporte.' },
-  { motivo: 'Muela del juicio o extracción', especialidad: 'cirugia', detalle: 'Extracciones simples y valoración quirúrgica.' }
-];
-
-// Pacientes de ejemplo (cada odontólogo tiene los suyos).
-const PACIENTES_DEMO = {
-  d1: [['Laura Gómez', '3001112233'], ['Juan Pérez', '3002223344'], ['Mariana Ruiz', '3003334455'], ['Carlos Mejía', '3004445566'], ['Valentina Torres', '3005556677'], ['Paula Henao', '3006667788'], ['Tomás Álvarez', '3007778899'], ['Isabel Cardona', '3008889900'], ['Felipe Zapata', '3009990011'], ['Daniela Ochoa', '3010001122'], ['Santiago Rendón', '3011112233'], ['Luisa Mora', '3012223344']],
-  d2: [['Pedro Castaño', '3101112233'], ['Ana Lucía Vélez', '3102223344'], ['Jorge Muñoz', '3103334455'], ['Natalia Giraldo', '3104445566'], ['Andrés Quintero', '3105556677'], ['Carolina Jaramillo', '3106667788'], ['Mauricio Arias', '3107778899'], ['Sara Montoya', '3108889900'], ['Esteban Londoño', '3109990011'], ['Gloria Patiño', '3110001122'], ['Ricardo Salazar', '3111112233'], ['Verónica Duque', '3112223344']],
-  d3: [['Mateo Restrepo', '3201112233'], ['Sofía Hincapié', '3202223344'], ['Samuel Gil', '3203334455'], ['Valeria Correa', '3204445566'], ['Martín Echeverri', '3205556677'], ['Antonia Uribe', '3206667788'], ['Jerónimo Cano', '3207778899'], ['Emilia Posada', '3208889900'], ['Simón Betancur', '3209990011'], ['Mariana Toro', '3210001122'], ['Juan José Vargas', '3211112233'], ['Isabella Marín', '3212223344']]
-};
-const NOMBRES_CHATBOT = ['Camilo Ríos', 'Manuela Arango', 'Diego Ospina', 'Laura Henao', 'Julián Mesa', 'Catalina Vélez', 'Óscar Pineda', 'Paola Ríos', 'Sebastián Toro', 'Alejandra Gil'];
+// Valores por defecto; al cargar se reemplazan por los que envía el servidor.
+let WHATSAPP_NUMERO = '573144914328';
+let HORARIO = { apertura: 480, cierre: 1020, almuerzoInicio: 720, almuerzoFin: 780, paso: 15, diasLaborables: [1, 2, 3, 4, 5, 6] };
+let ESPECIALIDADES = {};
+let MOTIVOS = [];
 
 const ESTADOS = { programada: 'Programada', asistida: 'Asistida', noasistio: 'No asistió', cancelada: 'Cancelada' };
 const ORIGENES = { whatsapp: 'Chatbot de WhatsApp', panel: 'Agendada en el panel', reagendada: 'Re-agendamiento' };
-const CLAVES = { datos: 'smartmind-datos-v1', usuarios: 'smartmind-usuarios-v1', sesion: 'smartmind-sesion-v1' };
+const CLAVE_TOKEN = 'smartmind-token-v2';
+const DIAS_HISTORIAL = 30;      // días hacia atrás que se cargan en el panel
+const REFRESCO_MS = 30000;      // cada cuánto se consulta el servidor
 
 
 /* ---------------------------------------------------------
@@ -85,9 +30,6 @@ const CLAVES = { datos: 'smartmind-datos-v1', usuarios: 'smartmind-usuarios-v1',
 const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
 const pad = n => String(n).padStart(2, '0');
-const clonar = obj => JSON.parse(JSON.stringify(obj));
-let secuencia = 0;
-const uid = prefijo => prefijo + Date.now().toString(36) + (secuencia++).toString(36);
 
 const aISO = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const deISO = iso => { const [a, m, d] = iso.split('-').map(Number); return new Date(a, m - 1, d); };
@@ -105,6 +47,8 @@ const solapa = (a1, a2, b1, b2) => a1 < b2 && b1 < a2;
 const soloDigitos = txt => String(txt || '').replace(/\D/g, '');
 const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
 const esc = txt => String(txt ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const porId = (lista, id) => lista.find(x => String(x.id) === String(id));
+const consulta = params => new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString();
 
 function cuando(t) {
   const d = new Date(t);
@@ -121,31 +65,71 @@ function minutosLaborales(desde, hasta) {
   return fin - ini - almuerzo;
 }
 
-// Almacenamiento seguro (si el navegador lo bloquea, se trabaja en memoria).
-function leer(clave, respaldo) {
-  try { const v = localStorage.getItem(clave); return v ? JSON.parse(v) : respaldo; } catch (e) { return respaldo; }
+
+/* ---------------------------------------------------------
+   3. CONEXIÓN CON LA API
+   --------------------------------------------------------- */
+let token = null;
+
+// Llama a /api<ruta>. Si el servidor responde con error, lanza un Error con su mensaje.
+async function api(ruta, { metodo = 'GET', cuerpo } = {}) {
+  const headers = {};
+  if (cuerpo !== undefined) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let r;
+  try {
+    r = await fetch(`/api${ruta}`, { method: metodo, headers, body: cuerpo !== undefined ? JSON.stringify(cuerpo) : undefined });
+  } catch (e) {
+    throw new Error('No se pudo conectar con el servidor.');
+  }
+  if (r.status === 204) return null;
+  let datosRespuesta = null;
+  try { datosRespuesta = await r.json(); } catch (e) { /* respuesta sin cuerpo */ }
+
+  if (r.status === 401 && token && ruta !== '/auth/login') sesionExpirada();
+  if (!r.ok) {
+    const error = new Error(datosRespuesta?.error || 'Ocurrió un error en el servidor.');
+    error.status = r.status;
+    throw error;
+  }
+  return datosRespuesta;
 }
-function escribir(clave, valor) {
-  try { localStorage.setItem(clave, JSON.stringify(valor)); } catch (e) { /* sin almacenamiento */ }
+
+// El token se guarda en localStorage ("mantener sesión") o solo en esta pestaña.
+function guardarToken(valor, recordar) {
+  try {
+    localStorage.removeItem(CLAVE_TOKEN);
+    sessionStorage.removeItem(CLAVE_TOKEN);
+    (recordar ? localStorage : sessionStorage).setItem(CLAVE_TOKEN, valor);
+  } catch (e) { /* sin almacenamiento: la sesión dura mientras la página esté abierta */ }
+}
+function leerToken() {
+  try { return localStorage.getItem(CLAVE_TOKEN) || sessionStorage.getItem(CLAVE_TOKEN); } catch (e) { return null; }
+}
+function borrarToken() {
+  try { localStorage.removeItem(CLAVE_TOKEN); sessionStorage.removeItem(CLAVE_TOKEN); } catch (e) { /* sin almacenamiento */ }
 }
 
 
 /* ---------------------------------------------------------
-   3. ESTADO
+   4. ESTADO (copia local de lo que hay en el servidor)
    --------------------------------------------------------- */
-let datos = null;      // doctores, catálogo, citas, bloqueos, cola, mensajes, notificaciones, ajustes
-let usuarios = [];     // cuentas registradas
-let usuario = null;    // sesión actual
+const datosVacios = () => ({
+  doctores: [], catalogo: {}, citas: [], bloqueos: [], cola: [], registro: [], notifs: [], config: {}, stats: null,
+  diaExtra: null // citas de un día anterior al historial cargado (agenda)
+});
+let datos = datosVacios();
+let usuario = null;
 const ui = {
   vista: 'paciente',
   seccion: 'resumen',
   agDoctor: null,
   agFecha: hoyISO(),
-  nueva: { fecha: null, inicio: null },
+  nueva: { fecha: null, inicio: null, libres: [], consulta: 0 },
   filtroNotif: 'todas'
 };
 
-const guardar = () => escribir(CLAVES.datos, datos);
 const doctorPor = id => datos.doctores.find(d => d.id === id);
 const procPor = id => datos.catalogo[id];
 const nombreProc = id => procPor(id)?.nombre || 'Procedimiento';
@@ -153,253 +137,79 @@ const nombreDoc = id => doctorPor(id)?.nombre || 'Odontólogo';
 const puedeHacer = (doc, proc) => !!doc && (ESPECIALIDADES[doc.especialidad]?.procs || []).includes(proc);
 const esAdmin = () => usuario?.rol === 'admin';
 const doctoresVisibles = () => (esAdmin() || !usuario?.doctorId) ? datos.doctores : datos.doctores.filter(d => d.id === usuario.doctorId);
-const enAlcance = item => esAdmin() || item.doctor === usuario?.doctorId;
-const citasAlcance = () => datos.citas.filter(enAlcance);
-const colaAlcance = () => datos.cola.filter(enAlcance);
+const inicioHistorial = () => sumarDias(hoyISO(), -DIAS_HISTORIAL);
 
+// Información pública: equipo, catálogo, especialidades y horario.
+async function cargarPublico() {
+  const info = await api('/publico/info');
+  HORARIO = info.horario;
+  ESPECIALIDADES = info.especialidades;
+  MOTIVOS = info.motivos;
+  if (info.whatsapp) WHATSAPP_NUMERO = info.whatsapp;
+  datos.doctores = info.doctores;
+  datos.catalogo = info.catalogo;
+}
 
-/* ---------------------------------------------------------
-   4. DATOS DE DEMOSTRACIÓN
-   --------------------------------------------------------- */
-function crearDatosDemo() {
-  const d = {
-    doctores: clonar(DOCTORES_BASE),
-    catalogo: clonar(CATALOGO_BASE),
-    citas: [], bloqueos: [], cola: [], registro: [], notifs: [],
-    config: { rec24: true, rec2: true, autoReagendar: true, avisoEmergencia: true, simular: true }
-  };
+// Todo lo que necesita el panel. El servidor ya filtra según el rol del usuario.
+async function cargarPanel() {
+  const desde = inicioHistorial();
+  const [, citas, bloqueos, cola, registro, notifs, config, stats] = await Promise.all([
+    cargarPublico(),
+    api(`/citas?${consulta({ desde })}`),
+    api(`/bloqueos?${consulta({ desde })}`),
+    api('/cola'),
+    api('/mensajes'),
+    api('/notificaciones'),
+    api('/config'),
+    api('/estadisticas')
+  ]);
+  Object.assign(datos, { citas, bloqueos, cola, registro, notifs, config, stats });
+}
 
-  // Plantillas de agenda sin cruces: [hora de inicio, procedimiento]
-  const plantillas = {
-    d1: [[480, 'lim'], [540, 'res'], [600, 'val'], [630, 'ble'], [840, 'lim'], [930, 'res'], [990, 'val']],
-    d2: [[480, 'end'], [600, 'val'], [660, 'rx'], [780, 'end'], [900, 'val'], [960, 'rx']],
-    d3: [[480, 'ort'], [510, 'ort'], [570, 'val'], [630, 'ort'], [810, 'ort'], [870, 'val'], [930, 'ort'], [960, 'ort']]
-  };
-  const hoy = hoyISO(), ahora = ahoraMin();
-  let contador = 0;
-
-  for (let n = -12; n <= 10; n++) {
-    const fecha = sumarDias(hoy, n);
-    if (!esLaborable(fecha)) continue;
-    d.doctores.forEach((doc, di) => {
-      plantillas[doc.id].forEach(([inicio, proc], si) => {
-        if ((n + si + di) % 3 === 0) return; // deja huecos libres
-        const lista = PACIENTES_DEMO[doc.id];
-        const [paciente, telefono] = lista[contador++ % lista.length];
-        const duracion = d.catalogo[proc].duracion;
-        const pasada = n < 0 || (n === 0 && inicio + duracion <= ahora);
-        let estado = 'programada';
-        if (pasada) {
-          const h = Math.abs(n * 7 + si * 3 + di * 5) % 11;
-          estado = h === 0 ? 'noasistio' : h === 1 ? 'cancelada' : 'asistida';
-        }
-        const cita = { id: uid('c'), paciente, telefono, proc, duracion, doctor: doc.id, fecha, inicio, estado, origen: si % 3 === 1 ? 'panel' : 'whatsapp' };
-        if (estado === 'cancelada') cita.motivoCancelacion = 'El paciente canceló';
-        d.citas.push(cita);
-      });
-    });
+// Vuelve a pedir los datos y redibuja. Se usa después de cada cambio.
+async function recargar() {
+  try {
+    await cargarPanel();
+  } catch (e) {
+    toast(e.message, 'error');
   }
-
-  // Dos pacientes que cancelaron y esperan un nuevo horario
-  d.citas.filter(c => c.estado === 'cancelada').slice(-2)
-    .forEach(c => d.cola.push(itemCola(c, 'Canceló por WhatsApp y pidió otro horario')));
-
-  // Bloqueos de ejemplo (en fechas sin citas)
-  const libres = [];
-  for (let n = 12; libres.length < 2 && n < 40; n++) {
-    const f = sumarDias(hoy, n);
-    if (esLaborable(f)) libres.push(f);
-  }
-  d.bloqueos.push({ id: uid('b'), doctor: 'd2', fecha: libres[0], desde: 14 * 60, hasta: 17 * 60, motivo: 'Cita médica personal', tipo: 'parcial' });
-  d.bloqueos.push({ id: uid('b'), doctor: 'd1', fecha: libres[1], desde: HORARIO.apertura, hasta: HORARIO.cierre, motivo: 'Congreso de odontología estética', tipo: 'completo' });
-
-  const t = Date.now(), h = 3600000;
-  d.registro = [
-    { t: t - 1 * h, titulo: 'Recordatorios de 2 h enviados', detalle: 'Pacientes con cita en las próximas horas' },
-    { t: t - 3 * h, titulo: 'Mensajes por inasistencia enviados', detalle: 'Se ofreció re-agendar a quienes no asistieron ayer' },
-    { t: t - 20 * h, titulo: 'Recordatorios de 24 h enviados', detalle: 'Todos los pacientes con cita para hoy' }
-  ];
-  const pendiente = d.cola[0];
-  d.notifs = [
-    { id: uid('n'), t: t - 0.5 * h, titulo: 'Un paciente pidió otro horario', detalle: `${pendiente ? pendiente.paciente : 'Un paciente'} está en la cola de re-agendamiento`, tipo: 'agenda', leida: false },
-    { id: uid('n'), t: t - 2 * h, titulo: 'Nueva cita desde WhatsApp', detalle: 'El chatbot agendó una cita para los próximos días', tipo: 'cita', leida: false },
-    { id: uid('n'), t: t - 26 * h, titulo: 'Bienvenido a Smart Mind', detalle: 'Tu agenda está conectada con el chatbot de WhatsApp', tipo: 'cita', leida: true }
-  ];
-  return d;
-}
-
-
-/* ---------------------------------------------------------
-   5. REGLAS DE AGENDA (cero cruces, cero errores de duración)
-   --------------------------------------------------------- */
-
-// Devuelve un mensaje de error, o null si el horario es válido.
-function validarHorario({ doctor, fecha, inicio, duracion, proc, paciente, telefono, ignorar }) {
-  const doc = doctorPor(doctor);
-  if (!doc) return 'Selecciona un odontólogo.';
-  if (proc && !puedeHacer(doc, proc)) return `${doc.nombre} no realiza este procedimiento.`;
-  if (!fecha) return 'Selecciona una fecha.';
-  if (!esLaborable(fecha)) return 'La clínica no atiende ese día.';
-  if (!Number.isInteger(duracion) || duracion <= 0 || duracion % HORARIO.paso) return 'La duración del procedimiento no es válida.';
-  if (!Number.isInteger(inicio) || inicio % HORARIO.paso) return 'La hora debe estar en bloques de 15 minutos.';
-
-  const fin = inicio + duracion;
-  if (inicio < HORARIO.apertura || fin > HORARIO.cierre) return 'La cita queda fuera del horario de atención.';
-  if (fecha < hoyISO() || (fecha === hoyISO() && inicio < ahoraMin())) return 'No se puede agendar en una hora que ya pasó.';
-  if (solapa(inicio, fin, HORARIO.almuerzoInicio, HORARIO.almuerzoFin)) return 'La cita se cruza con la hora de almuerzo.';
-
-  const bloqueo = datos.bloqueos.find(b => b.doctor === doctor && b.fecha === fecha && solapa(inicio, fin, b.desde, b.hasta));
-  if (bloqueo) return 'El odontólogo tiene la agenda bloqueada en ese horario.';
-
-  const cruce = datos.citas.find(c => c.id !== ignorar && c.estado !== 'cancelada' && c.doctor === doctor &&
-    c.fecha === fecha && solapa(inicio, fin, c.inicio, c.inicio + c.duracion));
-  if (cruce) return `Se cruza con la cita de ${cruce.paciente} (${hhmm(cruce.inicio)}–${hhmm(cruce.inicio + cruce.duracion)}).`;
-
-  // El mismo paciente no puede tener dos citas a la vez, ni con odontólogos distintos.
-  const tel = soloDigitos(telefono), nom = String(paciente || '').trim().toLowerCase();
-  if (tel || nom) {
-    const propia = datos.citas.find(c => c.id !== ignorar && c.estado !== 'cancelada' && c.fecha === fecha &&
-      ((tel && soloDigitos(c.telefono) === tel) || (nom && c.paciente.toLowerCase() === nom)) &&
-      solapa(inicio, fin, c.inicio, c.inicio + c.duracion));
-    if (propia) return `El paciente ya tiene una cita a esa hora con ${nombreDoc(propia.doctor)}.`;
-  }
-  return null;
-}
-
-// Todas las horas de inicio libres de un día.
-function horariosLibres(params) {
-  const libres = [];
-  if (!Number.isInteger(params.duracion)) return libres;
-  for (let t = HORARIO.apertura; t + params.duracion <= HORARIO.cierre; t += HORARIO.paso) {
-    if (!validarHorario({ ...params, inicio: t })) libres.push(t);
-  }
-  return libres;
-}
-
-// Próximos horarios libres a partir de una fecha (máximo `porDia` por día, repartidos).
-function proximosHorarios(params, desde, max = 12, dias = 30, porDia = 4) {
-  const res = [];
-  for (let n = 0; n <= dias && res.length < max; n++) {
-    const fecha = sumarDias(desde, n);
-    if (!esLaborable(fecha)) continue;
-    const libres = horariosLibres({ ...params, fecha });
-    const elegidos = libres.length <= porDia ? libres
-      : Array.from({ length: porDia }, (_, i) => libres[Math.round(i * (libres.length - 1) / (porDia - 1))]);
-    for (const inicio of elegidos) {
-      if (res.length >= max) break;
-      res.push({ fecha, inicio });
-    }
-  }
-  return res;
-}
-
-function agruparPorFecha(horarios) {
-  return horarios.reduce((acc, h) => { (acc[h.fecha] = acc[h.fecha] || []).push(h.inicio); return acc; }, {});
-}
-
-
-/* ---------------------------------------------------------
-   6. OPERACIONES
-   --------------------------------------------------------- */
-function crearCita(d) {
-  const error = validarHorario(d); // validación final justo antes de guardar
-  if (error) return { error };
-  const cita = {
-    id: uid('c'), paciente: d.paciente.trim(), telefono: d.telefono || '', proc: d.proc, duracion: d.duracion,
-    doctor: d.doctor, fecha: d.fecha, inicio: d.inicio, estado: 'programada', origen: d.origen || 'panel'
-  };
-  datos.citas.push(cita);
-  guardar();
-  return { cita };
-}
-
-function itemCola(cita, motivo) {
-  return {
-    id: uid('q'), citaId: cita.id, paciente: cita.paciente, telefono: cita.telefono, proc: cita.proc,
-    duracion: cita.duracion, doctor: cita.doctor, fechaOriginal: cita.fecha, inicioOriginal: cita.inicio,
-    motivo, creado: Date.now()
-  };
-}
-
-function cancelarCita(cita, motivo) {
-  cita.estado = 'cancelada';
-  cita.motivoCancelacion = motivo;
-}
-
-// Re-agenda un paciente de la cola respetando la misma duración.
-function reagendar(item, fecha, inicio) {
-  const r = crearCita({
-    paciente: item.paciente, telefono: item.telefono, proc: item.proc, duracion: item.duracion,
-    doctor: item.doctor, fecha, inicio, origen: 'reagendada'
-  });
-  if (r.error) return r;
-  datos.cola = datos.cola.filter(q => q.id !== item.id);
-  registrar('Nuevo horario enviado por WhatsApp', `${item.paciente} · ${nombreProc(item.proc)} · ${fmtCorta(fecha)}, ${hhmm(inicio)}`);
-  guardar();
-  return r;
-}
-
-const desdeParaReagendar = item => (item.fechaOriginal > hoyISO() ? item.fechaOriginal : hoyISO());
-
-// Asigna a cada paciente el primer horario libre con la misma duración.
-function reagendarAutomatico(items) {
-  let ok = 0, sinCupo = 0;
-  items.forEach(item => {
-    const [primero] = proximosHorarios(
-      { doctor: item.doctor, duracion: item.duracion, proc: item.proc, paciente: item.paciente, telefono: item.telefono },
-      desdeParaReagendar(item), 1, 45);
-    if (primero && !reagendar(item, primero.fecha, primero.inicio).error) ok++;
-    else sinCupo++;
-  });
-  return { ok, sinCupo };
-}
-
-function citasAfectadas(doctor, fecha, desde, hasta) {
-  return datos.citas
-    .filter(c => c.doctor === doctor && c.fecha === fecha && c.estado === 'programada' && solapa(desde, hasta, c.inicio, c.inicio + c.duracion))
-    .sort((a, b) => a.inicio - b.inicio);
-}
-
-// Crea un bloqueo y envía a la cola las citas que quedan dentro.
-function aplicarBloqueo({ doctor, fecha, desde, hasta, motivo, tipo }) {
-  const yaCubierto = datos.bloqueos.some(b => b.doctor === doctor && b.fecha === fecha && b.desde <= desde && b.hasta >= hasta);
-  if (!yaCubierto) datos.bloqueos.push({ id: uid('b'), doctor, fecha, desde, hasta, motivo, tipo });
-
-  const motivoCola = tipo === 'emergencia' ? 'Cancelada por emergencia del odontólogo' : 'Cancelada por bloqueo de agenda';
-  const items = citasAfectadas(doctor, fecha, desde, hasta).map(c => {
-    cancelarCita(c, motivoCola);
-    const item = itemCola(c, motivoCola);
-    datos.cola.push(item);
-    if (datos.config.avisoEmergencia) {
-      registrar('Aviso de cancelación enviado por WhatsApp', `${c.paciente} · ${fmtCorta(fecha)}, ${hhmm(c.inicio)} · se le ofrecerá un nuevo horario`);
-    }
-    return item;
-  });
-  guardar();
-  return items;
-}
-
-function marcar(cita, estado) {
-  if (cita.estado !== 'programada') return;
-  cita.estado = estado;
-  if (estado === 'noasistio') registrar('Mensaje por inasistencia enviado', `${cita.paciente} · se le ofreció re-agendar por WhatsApp`);
-  cerrarModal();
   refrescar();
+}
+
+// Ejecuta una operación en el servidor: muestra el error si falla y recarga si sale bien.
+async function ejecutar(operacion) {
+  try {
+    const r = await operacion();
+    await recargar();
+    return r;
+  } catch (e) {
+    toast(e.message, 'error');
+    return null;
+  }
+}
+
+
+/* ---------------------------------------------------------
+   5. OPERACIONES (todas pasan por la API)
+   --------------------------------------------------------- */
+const citasAlcance = () => datos.citas;
+const colaAlcance = () => datos.cola;
+
+async function marcar(cita, estado) {
+  if (cita.estado !== 'programada') return;
+  const r = await ejecutar(() => api(`/citas/${cita.id}/asistencia`, { metodo: 'PATCH', cuerpo: { estado } }));
+  if (!r) return;
+  cerrarModal();
   toast(estado === 'asistida' ? `${cita.paciente}: asistencia registrada` : `${cita.paciente}: inasistencia registrada`, 'ok');
 }
 
-function registrar(titulo, detalle) {
-  datos.registro.unshift({ t: Date.now(), titulo, detalle });
-  datos.registro = datos.registro.slice(0, 60);
-}
-function notificar(titulo, detalle, tipo = 'agenda') {
-  datos.notifs.unshift({ id: uid('n'), t: Date.now(), titulo, detalle, tipo, leida: false });
-  datos.notifs = datos.notifs.slice(0, 40);
+async function reagendarAutomatico(ids) {
+  return ejecutar(() => api('/cola/reagendar-auto', { metodo: 'POST', cuerpo: ids ? { ids } : {} }));
 }
 
 
 /* ---------------------------------------------------------
-   7. NAVEGACIÓN Y SESIÓN
+   6. NAVEGACIÓN Y SESIÓN
    --------------------------------------------------------- */
 function irA(vista) {
   if (vista === 'panel' && !usuario) vista = 'acceso';
@@ -416,36 +226,44 @@ function irA(vista) {
   window.scrollTo({ top: 0 });
 }
 
-function guardarSesion(correo, recordar) {
+async function iniciarSesion(respuesta, recordar) {
+  token = respuesta.token;
+  usuario = respuesta.usuario;
+  guardarToken(token, recordar);
   try {
-    localStorage.removeItem(CLAVES.sesion);
-    sessionStorage.removeItem(CLAVES.sesion);
-    (recordar ? localStorage : sessionStorage).setItem(CLAVES.sesion, correo);
-  } catch (e) { /* sin almacenamiento */ }
-}
-function leerSesion() {
-  try { return localStorage.getItem(CLAVES.sesion) || sessionStorage.getItem(CLAVES.sesion); } catch (e) { return null; }
-}
-function borrarSesion() {
-  try { localStorage.removeItem(CLAVES.sesion); sessionStorage.removeItem(CLAVES.sesion); } catch (e) { /* sin almacenamiento */ }
-}
-
-function iniciarSesion(u, recordar) {
-  usuario = u;
-  guardarSesion(u.correo, recordar);
+    await cargarPanel();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
   ui.agDoctor = null;
   ui.seccion = 'resumen';
   renderSesion();
   irA('panel');
-  toast(`Bienvenido(a), ${u.nombre}`, 'ok');
+  toast(`Bienvenido(a), ${usuario.nombre}`, 'ok');
+}
+
+function salir() {
+  token = null;
+  usuario = null;
+  borrarToken();
+  const { doctores, catalogo } = datos;
+  datos = { ...datosVacios(), doctores, catalogo };
+  cerrarModal();
+  renderSesion();
 }
 
 function cerrarSesion() {
-  usuario = null;
-  borrarSesion();
-  renderSesion();
+  salir();
   irA('paciente');
   toast('Sesión cerrada');
+}
+
+// El servidor rechazó el token (expiró o ya no es válido).
+function sesionExpirada() {
+  if (!usuario) return;
+  salir();
+  irA('acceso');
+  toast('Tu sesión expiró. Vuelve a ingresar.', 'error');
 }
 
 function renderSesion() {
@@ -477,9 +295,16 @@ function mostrarError(el, mensaje) {
   el.hidden = false;
 }
 
+// Desactiva el botón de envío mientras el servidor responde.
+async function conBotonOcupado(form, tarea) {
+  const boton = form.querySelector('[type="submit"]');
+  if (boton) boton.disabled = true;
+  try { return await tarea(); } finally { if (boton) boton.disabled = false; }
+}
+
 
 /* ---------------------------------------------------------
-   8. VISTA PACIENTES (información + enlaces a WhatsApp)
+   7. VISTA PACIENTES (información + enlaces a WhatsApp)
    --------------------------------------------------------- */
 const enlaceWhatsApp = mensaje => `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(mensaje)}`;
 
@@ -494,7 +319,7 @@ function activarWhatsApp() {
 function renderPaciente() {
   // Guía: qué especialista según el motivo
   $('#guia-especialistas').innerHTML = MOTIVOS.map(m => {
-    const esp = ESPECIALIDADES[m.especialidad];
+    const esp = ESPECIALIDADES[m.especialidad] || { nombre: '' };
     const docs = datos.doctores.filter(d => d.especialidad === m.especialidad);
     const quien = docs.length ? `Te atiende: ${docs.map(d => esc(d.nombre)).join(', ')}` : 'Empieza con una valoración inicial en odontología general.';
     return `<article class="guide-card">
@@ -525,7 +350,7 @@ function renderPaciente() {
 
 
 /* ---------------------------------------------------------
-   9. PANEL DEL ODONTÓLOGO
+   8. PANEL DEL ODONTÓLOGO
    --------------------------------------------------------- */
 const vacio = mensaje => `<li class="list-empty">${esc(mensaje)}</li>`;
 
@@ -552,7 +377,7 @@ function renderPanel() {
 
 function llenarSelectDoctores() {
   const docs = doctoresVisibles();
-  const opciones = docs.map(d => `<option value="${d.id}">${esc(d.nombre)}</option>`).join('');
+  const opciones = docs.map(d => `<option value="${esc(d.id)}">${esc(d.nombre)}</option>`).join('');
   ['#ag-doctor', '#blq-doctor', '#em-doctor'].forEach(sel => {
     const el = $(sel);
     const actual = el.value;
@@ -575,7 +400,6 @@ function mostrarSeccion(seccion) {
 }
 
 function refrescar() {
-  guardar();
   renderNotifs();
   renderContadores();
   if (ui.vista === 'panel') mostrarSeccion(ui.seccion);
@@ -589,28 +413,7 @@ function renderContadores() {
   el.classList.toggle('is-empty', !n);
 }
 
-/* --- 9.1 Resumen y estadísticas --- */
-function estadisticas() {
-  const cs = citasAlcance();
-  const contar = e => cs.filter(c => c.estado === e).length;
-  const asistidas = contar('asistida'), noasistio = contar('noasistio');
-  const hoy = hoyISO();
-  let disponible = 0, ocupado = 0;
-  if (esLaborable(hoy)) {
-    doctoresVisibles().forEach(d => {
-      const bloqueado = datos.bloqueos.filter(b => b.doctor === d.id && b.fecha === hoy).reduce((s, b) => s + minutosLaborales(b.desde, b.hasta), 0);
-      disponible += Math.max(0, minutosLaborales(HORARIO.apertura, HORARIO.cierre) - bloqueado);
-      ocupado += datos.citas.filter(c => c.doctor === d.id && c.fecha === hoy && c.estado !== 'cancelada').reduce((s, c) => s + c.duracion, 0);
-    });
-  }
-  return {
-    asistidas, noasistio,
-    canceladas: contar('cancelada'),
-    programadas: contar('programada'),
-    tasa: asistidas + noasistio ? Math.round(asistidas / (asistidas + noasistio) * 100) : 0,
-    ocupacion: disponible ? Math.min(100, Math.round(ocupado / disponible * 100)) : 0
-  };
-}
+/* --- 8.1 Resumen y estadísticas --- */
 
 // Actualiza un contador y lo anima si cambió.
 function ponerStat(id, valor, sufijo = '') {
@@ -625,7 +428,7 @@ function ponerStat(id, valor, sufijo = '') {
 }
 
 function renderResumen() {
-  const s = estadisticas();
+  const s = datos.stats || { asistidas: 0, canceladas: 0, noasistio: 0, programadas: 0, tasa: 0, ocupacion: 0 };
   ponerStat('stat-asistidas', s.asistidas);
   ponerStat('stat-canceladas', s.canceladas);
   ponerStat('stat-noasistio', s.noasistio);
@@ -648,7 +451,7 @@ function renderResumen() {
   $('#alerta-cola-texto').textContent = `${plural(pendientes, 'paciente espera', 'pacientes esperan')} un nuevo horario.`;
 }
 
-/* --- 9.2 Elementos de cita reutilizables --- */
+/* --- 8.2 Elementos de cita reutilizables --- */
 const yaEmpezo = c => c.fecha < hoyISO() || (c.fecha === hoyISO() && c.inicio <= ahoraMin());
 
 function accionesCita(c) {
@@ -673,7 +476,10 @@ function itemCitaHTML(c, mostrarDoctor = false) {
   </li>`;
 }
 
-/* --- 9.3 Agenda (calendario por odontólogo) --- */
+// Busca una cita en lo cargado (incluye el día extra de la agenda).
+const citaPorId = id => porId(datos.citas, id) || porId(datos.diaExtra?.citas || [], id);
+
+/* --- 8.3 Agenda (calendario por odontólogo) --- */
 function eventoHTML({ inicio, fin, estado, titulo, meta = '', id = null }) {
   const fila = (inicio - HORARIO.apertura) / HORARIO.paso + 1;
   const bloques = Math.max(1, (fin - inicio) / HORARIO.paso);
@@ -684,6 +490,20 @@ function eventoHTML({ inicio, fin, estado, titulo, meta = '', id = null }) {
   </${etiqueta}>`;
 }
 
+// Citas de un día. Si es anterior al historial cargado, se piden al servidor.
+function citasDelDia(doctor, fecha) {
+  if (fecha >= inicioHistorial()) return datos.citas.filter(c => c.doctor === doctor && c.fecha === fecha);
+  const clave = `${doctor}|${fecha}`;
+  if (datos.diaExtra?.clave === clave) return datos.diaExtra.citas;
+  if (datos.diaExtra?.pendiente !== clave) {
+    datos.diaExtra = { pendiente: clave };
+    api(`/citas?${consulta({ doctor, fecha })}`)
+      .then(citas => { datos.diaExtra = { clave, citas }; if (ui.seccion === 'agenda') renderAgenda(); })
+      .catch(e => { datos.diaExtra = null; toast(e.message, 'error'); });
+  }
+  return null;
+}
+
 function renderAgenda() {
   const sel = $('#ag-doctor');
   if (ui.agDoctor && sel.value !== ui.agDoctor) sel.value = ui.agDoctor;
@@ -692,7 +512,14 @@ function renderAgenda() {
   const grid = $('#calendar-grid');
   const fecha = ui.agFecha;
   const doc = doctorPor(ui.agDoctor);
-  const citas = datos.citas.filter(c => c.doctor === ui.agDoctor && c.fecha === fecha).sort((a, b) => a.inicio - b.inicio);
+  const delDia = citasDelDia(ui.agDoctor, fecha);
+  if (delDia === null) {
+    grid.classList.add('is-empty');
+    grid.innerHTML = '<p class="cal-empty">Cargando agenda…</p>';
+    $('#lista-dia').innerHTML = vacio('Cargando…');
+    return;
+  }
+  const citas = delDia.slice().sort((a, b) => a.inicio - b.inicio);
   const activas = citas.filter(c => c.estado !== 'cancelada');
   const bloqueos = datos.bloqueos.filter(b => b.doctor === ui.agDoctor && b.fecha === fecha);
 
@@ -731,24 +558,49 @@ function renderAgenda() {
   $('#lista-dia').innerHTML = citas.length ? citas.map(c => itemCitaHTML(c)).join('') : vacio('Sin citas para este día.');
 }
 
-/* --- 9.4 Nueva cita --- */
+/* --- 8.4 Nueva cita --- */
 function renderNueva() {
   const selProc = $('#cita-proc'), selDoc = $('#cita-doctor');
   const procActual = selProc.value, docActual = selDoc.value;
 
   selProc.innerHTML = Object.entries(datos.catalogo)
-    .map(([id, p]) => `<option value="${id}">${esc(p.nombre)} · ${p.duracion} min</option>`).join('');
+    .map(([id, p]) => `<option value="${esc(id)}">${esc(p.nombre)} · ${p.duracion} min</option>`).join('');
   selProc.value = datos.catalogo[procActual] ? procActual : 'val';
 
   const docs = doctoresVisibles().filter(d => puedeHacer(d, selProc.value));
   selDoc.innerHTML = docs.length
-    ? docs.map(d => `<option value="${d.id}">${esc(d.nombre)}</option>`).join('')
+    ? docs.map(d => `<option value="${esc(d.id)}">${esc(d.nombre)}</option>`).join('')
     : '<option value="">Ningún odontólogo disponible realiza este procedimiento</option>';
   selDoc.value = docs.some(d => d.id === docActual) ? docActual : (docs[0]?.id || '');
   actualizarNueva();
 }
 
-function actualizarNueva() {
+function pintarHorariosNueva(p, doctor, cargando) {
+  const libres = ui.nueva.libres;
+  if (!libres.includes(ui.nueva.inicio)) ui.nueva.inicio = null;
+  pintarSiCambia('#cita-horarios', cargando
+    ? '<p class="chips-empty">Buscando horarios libres…</p>'
+    : libres.length
+      ? libres.map(t => `<button type="button" class="chip" data-hora="${t}" aria-pressed="${t === ui.nueva.inicio}">${hhmm(t)}<span class="chip-sub">a ${hhmm(t + p.duracion)}</span></button>`).join('')
+      : `<p class="chips-empty">${doctor ? 'No hay horarios libres este día. Prueba otra fecha.' : 'Selecciona un odontólogo.'}</p>`);
+
+  // Resumen
+  const resumen = $('#cita-resumen');
+  if (ui.nueva.inicio !== null && p) {
+    resumen.hidden = false;
+    resumen.innerHTML = `
+      <div class="summary-row"><span>Fecha</span><strong>${esc(fmtLarga(ui.nueva.fecha))}</strong></div>
+      <div class="summary-row"><span>Horario</span><strong>${hhmm(ui.nueva.inicio)}–${hhmm(ui.nueva.inicio + p.duracion)}</strong></div>
+      <div class="summary-row"><span>Odontólogo</span><strong>${esc(nombreDoc(doctor))}</strong></div>
+      <div class="summary-row summary-total"><span>Tarifa</span><strong>${pesos(p.precio)}</strong></div>`;
+  } else {
+    resumen.hidden = true;
+  }
+  $('#btn-confirmar').disabled = ui.nueva.inicio === null;
+}
+
+// Redibuja fechas y pide al servidor los horarios libres (`soloPintar` evita la consulta).
+async function actualizarNueva(soloPintar = false) {
   const proc = $('#cita-proc').value, p = procPor(proc), doctor = $('#cita-doctor').value;
   $('#cita-duracion').textContent = p ? `Duración fija: ${p.duracion} min · Tarifa: ${pesos(p.precio)}` : 'Selecciona un procedimiento';
 
@@ -766,32 +618,30 @@ function actualizarNueva() {
     return `<button type="button" class="chip" data-fecha="${f}" aria-pressed="${f === ui.nueva.fecha}"><span class="chip-sub">${esc(dia)}</span>${d.getDate()} ${esc(mes)}</button>`;
   }).join(''));
 
-  // Horarios libres para esa combinación
-  const libres = doctor && p ? horariosLibres({
-    doctor, fecha: ui.nueva.fecha, duracion: p.duracion, proc,
-    paciente: $('#pac-nombre').value, telefono: $('#pac-telefono').value
-  }) : [];
-  if (!libres.includes(ui.nueva.inicio)) ui.nueva.inicio = null;
-  pintarSiCambia('#cita-horarios', libres.length
-    ? libres.map(t => `<button type="button" class="chip" data-hora="${t}" aria-pressed="${t === ui.nueva.inicio}">${hhmm(t)}<span class="chip-sub">a ${hhmm(t + p.duracion)}</span></button>`).join('')
-    : `<p class="chips-empty">${doctor ? 'No hay horarios libres este día. Prueba otra fecha.' : 'Selecciona un odontólogo.'}</p>`);
-
-  // Resumen
-  const resumen = $('#cita-resumen');
-  if (ui.nueva.inicio !== null && p) {
-    resumen.hidden = false;
-    resumen.innerHTML = `
-      <div class="summary-row"><span>Fecha</span><strong>${esc(fmtLarga(ui.nueva.fecha))}</strong></div>
-      <div class="summary-row"><span>Horario</span><strong>${hhmm(ui.nueva.inicio)}–${hhmm(ui.nueva.inicio + p.duracion)}</strong></div>
-      <div class="summary-row"><span>Odontólogo</span><strong>${esc(nombreDoc(doctor))}</strong></div>
-      <div class="summary-row summary-total"><span>Tarifa</span><strong>${pesos(p.precio)}</strong></div>`;
-  } else {
-    resumen.hidden = true;
+  if (soloPintar) return pintarHorariosNueva(p, doctor, false);
+  if (!doctor || !p) {
+    ui.nueva.libres = [];
+    return pintarHorariosNueva(p, doctor, false);
   }
-  $('#btn-confirmar').disabled = ui.nueva.inicio === null;
+
+  // Solo se pinta la respuesta de la última consulta (el usuario puede cambiar de fecha rápido).
+  const numero = ++ui.nueva.consulta;
+  pintarHorariosNueva(p, doctor, true);
+  try {
+    const r = await api(`/disponibilidad?${consulta({
+      doctor, proc, fecha: ui.nueva.fecha, paciente: $('#pac-nombre').value.trim(), telefono: $('#pac-telefono').value.trim()
+    })}`);
+    if (numero !== ui.nueva.consulta) return;
+    ui.nueva.libres = r.libres;
+  } catch (e) {
+    if (numero !== ui.nueva.consulta) return;
+    ui.nueva.libres = [];
+    toast(e.message, 'error');
+  }
+  pintarHorariosNueva(p, doctor, false);
 }
 
-/* --- 9.5 Bloqueos y emergencias --- */
+/* --- 8.5 Bloqueos y emergencias --- */
 function renderBloqueos() {
   const hoy = hoyISO();
   ['#blq-fecha', '#em-fecha'].forEach(sel => {
@@ -799,7 +649,7 @@ function renderBloqueos() {
     el.min = hoy;
     if (!el.value || el.value < hoy) el.value = hoy;
   });
-  const lista = datos.bloqueos.filter(b => enAlcance(b) && b.fecha >= hoy)
+  const lista = datos.bloqueos.filter(b => b.fecha >= hoy)
     .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.desde - b.desde);
   $('#lista-bloqueos').innerHTML = lista.length ? lista.map(b => {
     const completo = b.desde <= HORARIO.apertura && b.hasta >= HORARIO.cierre;
@@ -821,13 +671,18 @@ function listaAfectadasHTML(citas) {
   return `<ul class="list list-compact">${citas.map(c => `<li><div class="list-main"><p class="list-title">${esc(c.paciente)}</p><p class="list-meta">${hhmm(c.inicio)}–${hhmm(c.inicio + c.duracion)} · ${esc(nombreProc(c.proc))}</p></div></li>`).join('')}</ul>`;
 }
 
-function abrirEmergencia(doctor, fecha) {
+async function abrirEmergencia(doctor, fecha) {
   const doc = doctorPor(doctor);
   if (!doc) return toast('Selecciona un odontólogo', 'error');
   if (!fecha || fecha < hoyISO()) return toast('Elige hoy o una fecha futura', 'error');
   if (!esLaborable(fecha)) return toast('Ese día la clínica no atiende', 'error');
 
-  const afectadas = citasAfectadas(doctor, fecha, HORARIO.apertura, HORARIO.cierre);
+  let afectadas;
+  try {
+    afectadas = await api(`/bloqueos/afectadas?${consulta({ doctor, fecha, tipo: 'emergencia' })}`);
+  } catch (e) {
+    return toast(e.message, 'error');
+  }
   abrirModal({
     titulo: 'Emergencia / día no laborable',
     tipo: 'peligro',
@@ -837,10 +692,10 @@ function abrirEmergencia(doctor, fecha) {
         : '<p class="alert">No hay citas programadas ese día.</p>'}`,
     acciones: [
       { texto: 'Volver', accion: cerrarModal },
-      { texto: 'Activar emergencia', clase: 'btn-danger', accion: () => {
-        const items = aplicarBloqueo({ doctor, fecha, desde: HORARIO.apertura, hasta: HORARIO.cierre, motivo: 'Emergencia / imprevisto', tipo: 'emergencia' });
-        notificar('Emergencia activada', `${doc.nombre} · ${fmtCorta(fecha)} · ${plural(items.length, 'paciente', 'pacientes')} por re-agendar`, 'agenda');
-        refrescar();
+      { texto: 'Activar emergencia', clase: 'btn-danger', accion: async () => {
+        const r = await ejecutar(() => api('/bloqueos', { metodo: 'POST', cuerpo: { doctor, fecha, tipo: 'emergencia' } }));
+        if (!r) return;
+        const items = r.items;
         if (!items.length) { cerrarModal(); return toast('Día bloqueado. No había citas que cancelar.', 'ok'); }
         abrirModal({
           titulo: 'Emergencia activada',
@@ -848,12 +703,10 @@ function abrirEmergencia(doctor, fecha) {
             <p class="alert">¿Quieres que el sistema les asigne el primer horario libre con la misma duración de su procedimiento?</p>`,
           acciones: [
             { texto: 'Lo haré desde la cola', accion: () => { cerrarModal(); mostrarSeccion('cola'); } },
-            { texto: 'Re-agendar automáticamente', clase: 'btn-primary', accion: () => {
-              const r = reagendarAutomatico(items);
-              if (r.ok) notificar('Re-agendamiento automático', `${plural(r.ok, 'paciente recibió', 'pacientes recibieron')} un nuevo horario`, 'agenda');
+            { texto: 'Re-agendar automáticamente', clase: 'btn-primary', accion: async () => {
+              const res = await reagendarAutomatico(items.map(i => i.id));
               cerrarModal();
-              refrescar();
-              toast(`${plural(r.ok, 'paciente re-agendado', 'pacientes re-agendados')}${r.sinCupo ? ` · ${r.sinCupo} sin cupo` : ''}`, 'ok');
+              if (res) toast(`${plural(res.ok, 'paciente re-agendado', 'pacientes re-agendados')}${res.sinCupo ? ` · ${res.sinCupo} sin cupo` : ''}`, 'ok');
             } }
           ]
         });
@@ -862,7 +715,7 @@ function abrirEmergencia(doctor, fecha) {
   });
 }
 
-/* --- 9.6 Cola de re-agendamiento --- */
+/* --- 8.6 Cola de re-agendamiento --- */
 function renderCola() {
   const lista = colaAlcance().slice().sort((a, b) => a.creado - b.creado);
   $('#lista-cola').innerHTML = lista.length ? lista.map(q => `<li>
@@ -878,12 +731,12 @@ function renderCola() {
   $('#cola-auto').disabled = !lista.length;
 }
 
-/* --- 9.7 Catálogo --- */
+/* --- 8.7 Catálogo --- */
 function renderCatalogo() {
   const editable = esAdmin();
   $('#cat-aviso').hidden = editable;
   $('#cat-guardar').hidden = !editable;
-  $('#tabla-catalogo tbody').innerHTML = Object.entries(datos.catalogo).map(([id, p]) => `<tr data-proc="${id}">
+  $('#tabla-catalogo tbody').innerHTML = Object.entries(datos.catalogo).map(([id, p]) => `<tr data-proc="${esc(id)}">
       <td>${esc(p.nombre)}</td>
       <td><input type="number" data-campo="duracion" value="${p.duracion}" min="15" max="240" step="15" aria-label="Duración de ${esc(p.nombre)} en minutos"${editable ? '' : ' disabled'}></td>
       <td><input type="number" data-campo="precio" value="${p.precio}" min="0" step="1000" aria-label="Tarifa de ${esc(p.nombre)}"${editable ? '' : ' disabled'}></td>
@@ -891,7 +744,7 @@ function renderCatalogo() {
     </tr>`).join('');
 }
 
-function guardarCatalogo() {
+async function guardarCatalogo() {
   const nuevos = {};
   for (const fila of $$('#tabla-catalogo tbody tr')) {
     const id = fila.dataset.proc;
@@ -902,20 +755,23 @@ function guardarCatalogo() {
     if (!Number.isFinite(precio) || precio < 0) return toast(`${nombre}: la tarifa no es válida.`, 'error');
     nuevos[id] = { duracion, precio: Math.round(precio) };
   }
-  Object.entries(nuevos).forEach(([id, v]) => Object.assign(datos.catalogo[id], v));
-  notificar('Catálogo actualizado', 'Las nuevas duraciones aplican a las próximas citas', 'agenda');
-  refrescar();
-  toast('Catálogo guardado. Tarifas publicadas para pacientes.', 'ok');
+  const r = await ejecutar(() => api('/catalogo', { metodo: 'PUT', cuerpo: nuevos }));
+  if (r) toast('Catálogo guardado. Tarifas publicadas para pacientes.', 'ok');
 }
 
-/* --- 9.8 Automatizaciones --- */
+/* --- 8.8 Automatizaciones --- */
 function renderAjustes() {
-  $$('[data-config]').forEach(input => { input.checked = !!datos.config[input.dataset.config]; });
+  $$('[data-config]').forEach(input => {
+    input.checked = !!datos.config[input.dataset.config];
+    input.disabled = !esAdmin();
+  });
+  $('#ajustes-aviso').hidden = esAdmin();
+  $('#ajustes-whatsapp').textContent = `+${WHATSAPP_NUMERO}`;
 }
 
 
 /* ---------------------------------------------------------
-   10. MODALES
+   9. MODALES
    --------------------------------------------------------- */
 const M = { caja: $('#modal'), titulo: $('#modal-titulo'), cuerpo: $('#modal-cuerpo'), acciones: $('#modal-acciones') };
 let focoPrevio = null;
@@ -930,7 +786,12 @@ function abrirModal({ titulo, cuerpo, acciones = [], tipo = '' }) {
     b.type = 'button';
     b.className = `btn ${a.clase || 'btn-outline'}`;
     b.textContent = a.texto;
-    b.addEventListener('click', a.accion);
+    // Mientras la acción espera al servidor, los botones quedan desactivados.
+    b.addEventListener('click', async () => {
+      const botones = Array.from(M.acciones.querySelectorAll('button'));
+      botones.forEach(x => { x.disabled = true; });
+      try { await a.accion(); } finally { botones.forEach(x => { x.disabled = false; }); }
+    });
     M.acciones.appendChild(b);
   });
   if (tipo) M.caja.dataset.tipo = tipo; else delete M.caja.dataset.tipo;
@@ -964,7 +825,7 @@ function abrirDetalle(c) {
       <dt>Fecha</dt><dd>${esc(fmtLarga(c.fecha))}</dd>
       <dt>Hora</dt><dd>${hhmm(c.inicio)}–${hhmm(c.inicio + c.duracion)}</dd>
       <dt>Odontólogo</dt><dd>${esc(nombreDoc(c.doctor))}</dd>
-      <dt>Celular</dt><dd>${esc(c.telefono || '—')}</dd>
+      <dt>Celular</dt><dd>${esc(c.telefono ? `+${c.telefono}` : '—')}</dd>
       <dt>Origen</dt><dd>${esc(ORIGENES[c.origen] || 'Panel')}</dd>
       ${c.motivoCancelacion ? `<dt>Motivo</dt><dd>${esc(c.motivoCancelacion)}</dd>` : ''}
     </dl>`,
@@ -973,6 +834,7 @@ function abrirDetalle(c) {
 }
 
 function abrirCancelar(c) {
+  const autoReagendar = !!datos.config.autoReagendar;
   abrirModal({
     titulo: 'Cancelar cita',
     tipo: 'peligro',
@@ -980,29 +842,28 @@ function abrirCancelar(c) {
       <div class="field"><label for="cancel-motivo">Motivo</label>
         <select id="cancel-motivo"><option>El paciente canceló</option><option>El odontólogo no puede atender</option><option>Decisión de la clínica</option></select>
       </div>
-      ${datos.config.autoReagendar ? `<p class="alert">Al confirmar, le ofreceremos de inmediato un nuevo horario con la misma duración (${c.duracion} min).</p>` : ''}`,
+      ${autoReagendar ? `<p class="alert">Al confirmar, le ofreceremos de inmediato un nuevo horario con la misma duración (${c.duracion} min).</p>` : ''}`,
     acciones: [
       { texto: 'Volver', accion: cerrarModal },
-      { texto: datos.config.autoReagendar ? 'Cancelar y re-agendar' : 'Cancelar cita', clase: 'btn-danger', accion: () => {
+      { texto: autoReagendar ? 'Cancelar y re-agendar' : 'Cancelar cita', clase: 'btn-danger', accion: async () => {
         const motivo = $('#cancel-motivo').value;
-        cancelarCita(c, motivo);
-        const item = itemCola(c, motivo);
-        datos.cola.push(item);
-        registrar('Cancelación confirmada por WhatsApp', `${c.paciente} · ${nombreProc(c.proc)} · ${fmtCorta(c.fecha)}, ${hhmm(c.inicio)}`);
-        notificar('Cita cancelada', `${c.paciente} · ${fmtCorta(c.fecha)}, ${hhmm(c.inicio)}`, 'agenda');
-        refrescar();
-        if (datos.config.autoReagendar) abrirReagendar(item, true);
+        const r = await ejecutar(() => api(`/citas/${c.id}/cancelar`, { metodo: 'POST', cuerpo: { motivo } }));
+        if (!r) return;
+        if (autoReagendar && r.item) await abrirReagendar(r.item, true);
         else { cerrarModal(); toast('Cita cancelada. El paciente quedó en la cola de re-agendamiento.'); }
       } }
     ]
   });
 }
 
-function abrirReagendar(item, recienCancelada = false) {
-  const opciones = proximosHorarios(
-    { doctor: item.doctor, duracion: item.duracion, proc: item.proc, paciente: item.paciente, telefono: item.telefono },
-    desdeParaReagendar(item), 12);
-  const grupos = agruparPorFecha(opciones);
+async function abrirReagendar(item, recienCancelada = false) {
+  let opciones;
+  try {
+    opciones = await api(`/cola/${item.id}/opciones`);
+  } catch (e) {
+    return toast(e.message, 'error');
+  }
+  const grupos = opciones.reduce((acc, h) => { (acc[h.fecha] = acc[h.fecha] || []).push(h.inicio); return acc; }, {});
   let elegido = null;
 
   const horariosHTML = opciones.length
@@ -1017,13 +878,11 @@ function abrirReagendar(item, recienCancelada = false) {
       ${horariosHTML}`,
     acciones: [
       { texto: 'Dejar en la cola', accion: () => { cerrarModal(); toast('El paciente quedó en la cola de re-agendamiento'); } },
-      { texto: 'Confirmar nuevo horario', clase: 'btn-primary', accion: () => {
+      { texto: 'Confirmar nuevo horario', clase: 'btn-primary', accion: async () => {
         if (!elegido) return toast('Elige un horario primero', 'error');
-        const r = reagendar(item, elegido.fecha, elegido.inicio);
-        if (r.error) return toast(r.error, 'error');
-        notificar('Cita re-agendada', `${item.paciente} · ${fmtCorta(elegido.fecha)}, ${hhmm(elegido.inicio)}`, 'agenda');
+        const r = await ejecutar(() => api(`/cola/${item.id}/reagendar`, { metodo: 'POST', cuerpo: elegido }));
+        if (!r) return;
         cerrarModal();
-        refrescar();
         toast('Nuevo horario confirmado y enviado al paciente', 'ok');
       } }
     ]
@@ -1041,7 +900,7 @@ function abrirReagendar(item, recienCancelada = false) {
 
 
 /* ---------------------------------------------------------
-   11. NOTIFICACIONES Y AVISOS
+   10. NOTIFICACIONES Y AVISOS
    --------------------------------------------------------- */
 function renderNotifs() {
   const sinLeer = datos.notifs.filter(n => !n.leida).length;
@@ -1075,26 +934,25 @@ function toast(mensaje, tipo = '') {
   temporizadorToast = setTimeout(() => { t.hidden = true; }, 3800);
 }
 
-// Modo demostración: simula reservas que llegan del chatbot de WhatsApp.
-function simularChatbot() {
-  if (!usuario || !datos.config.simular) return;
-  const doc = datos.doctores[Math.floor(Math.random() * datos.doctores.length)];
-  const procs = ESPECIALIDADES[doc.especialidad]?.procs || ['val'];
-  const proc = procs[Math.floor(Math.random() * procs.length)];
-  const p = procPor(proc);
-  const nombre = NOMBRES_CHATBOT[Math.floor(Math.random() * NOMBRES_CHATBOT.length)];
-  const telefono = '31' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0');
-  const [horario] = proximosHorarios({ doctor: doc.id, duracion: p.duracion, proc, paciente: nombre, telefono },
-    sumarDias(hoyISO(), 1 + Math.floor(Math.random() * 5)), 1);
-  if (!horario) return;
-  const r = crearCita({ paciente: nombre, telefono, proc, duracion: p.duracion, doctor: doc.id, fecha: horario.fecha, inicio: horario.inicio, origen: 'whatsapp' });
-  if (r.error) return;
-  notificar('Nueva cita desde WhatsApp', `${nombre} · ${p.nombre} con ${doc.nombre} · ${fmtCorta(horario.fecha)}, ${hhmm(horario.inicio)}`, 'cita');
-  registrar('Confirmación enviada por WhatsApp', `${nombre} · ${fmtCorta(horario.fecha)}, ${hhmm(horario.inicio)}`);
-  guardar();
+// Consulta el servidor cada cierto tiempo: así llegan las citas que agenda el chatbot.
+let actualizando = false;
+async function actualizarEnSegundoPlano() {
+  if (!usuario || actualizando || document.hidden) return;
+  actualizando = true;
+  const ultimaNotif = Math.max(0, ...datos.notifs.map(n => n.id));
+  try {
+    await cargarPanel();
+  } catch (e) {
+    return;
+  } finally {
+    actualizando = false;
+  }
+  const nueva = datos.notifs.find(n => n.id > ultimaNotif && !n.leida);
+  if (nueva) toast(`${nueva.titulo}: ${nueva.detalle}`, 'ok');
   renderNotifs();
   renderContadores();
-  if (ui.vista === 'panel' && ['resumen', 'agenda', 'cola'].includes(ui.seccion) && M.caja.hidden) mostrarSeccion(ui.seccion);
+  // No se redibuja si hay un modal abierto o si se está llenando una nueva cita.
+  if (ui.vista === 'panel' && ['resumen', 'agenda', 'cola', 'bloqueos'].includes(ui.seccion) && M.caja.hidden) mostrarSeccion(ui.seccion);
 }
 
 // Cada minuto: refresca horas, botones de asistencia y ocupación.
@@ -1104,7 +962,7 @@ function tic() {
 
 
 /* ---------------------------------------------------------
-   12. EVENTOS
+   11. EVENTOS
    --------------------------------------------------------- */
 
 // Clics generales (delegados)
@@ -1119,7 +977,7 @@ document.addEventListener('click', e => {
 
   const accion = t.closest('[data-accion]');
   if (accion) {
-    const cita = datos.citas.find(c => c.id === accion.dataset.cita);
+    const cita = citaPorId(accion.dataset.cita);
     if (!cita) return;
     if (accion.dataset.accion === 'cancelar') abrirCancelar(cita);
     else marcar(cita, accion.dataset.accion);
@@ -1127,24 +985,26 @@ document.addEventListener('click', e => {
   }
 
   const detalle = t.closest('[data-cita-detalle]');
-  if (detalle) { const c = datos.citas.find(x => x.id === detalle.dataset.citaDetalle); if (c) abrirDetalle(c); return; }
+  if (detalle) { const c = citaPorId(detalle.dataset.citaDetalle); if (c) abrirDetalle(c); return; }
 
   const quitar = t.closest('[data-quitar-bloqueo]');
   if (quitar) {
-    datos.bloqueos = datos.bloqueos.filter(b => b.id !== quitar.dataset.quitarBloqueo);
-    refrescar();
-    toast('Bloqueo eliminado. La agenda vuelve a estar disponible.', 'ok');
+    quitar.disabled = true;
+    api(`/bloqueos/${quitar.dataset.quitarBloqueo}`, { metodo: 'DELETE' })
+      .then(() => toast('Bloqueo eliminado. La agenda vuelve a estar disponible.', 'ok'))
+      .catch(err => toast(err.message, 'error'))
+      .finally(recargar);
     return;
   }
 
   const reag = t.closest('[data-reagendar]');
-  if (reag) { const q = datos.cola.find(x => x.id === reag.dataset.reagendar); if (q) abrirReagendar(q); return; }
+  if (reag) { const q = porId(datos.cola, reag.dataset.reagendar); if (q) abrirReagendar(q); return; }
 
   const fecha = t.closest('#cita-fechas [data-fecha]');
   if (fecha) { ui.nueva.fecha = fecha.dataset.fecha; ui.nueva.inicio = null; actualizarNueva(); return; }
 
   const hora = t.closest('#cita-horarios [data-hora]');
-  if (hora) { ui.nueva.inicio = Number(hora.dataset.hora); actualizarNueva(); return; }
+  if (hora) { ui.nueva.inicio = Number(hora.dataset.hora); actualizarNueva(true); return; }
 
   const filtro = t.closest('[data-filtro]');
   if (filtro) { ui.filtroNotif = filtro.dataset.filtro; renderNotifs(); return; }
@@ -1166,16 +1026,23 @@ $('#reg-rol').addEventListener('change', actualizarRolRegistro);
 // Inicio de sesión
 $('#form-login').addEventListener('submit', e => {
   e.preventDefault();
+  const form = e.currentTarget;
   const error = $('#login-error');
   const correo = $('#login-correo').value.trim().toLowerCase();
   const clave = $('#login-clave').value;
   if (!correo || !clave) return mostrarError(error, 'Escribe tu correo y tu contraseña.');
-  const u = usuarios.find(x => x.correo === correo && x.clave === clave);
-  if (!u) return mostrarError(error, 'Correo o contraseña incorrectos.');
   const recordar = $('#login-recordar').checked;
-  error.hidden = true;
-  e.currentTarget.reset();
-  iniciarSesion(u, recordar);
+
+  conBotonOcupado(form, async () => {
+    try {
+      const r = await api('/auth/login', { metodo: 'POST', cuerpo: { correo, clave } });
+      error.hidden = true;
+      form.reset();
+      await iniciarSesion(r, recordar);
+    } catch (err) {
+      mostrarError(error, err.message);
+    }
+  });
 });
 
 // Registro
@@ -1191,25 +1058,22 @@ $('#form-registro').addEventListener('submit', e => {
 
   if (nombre.length < 5) return mostrarError(error, 'Escribe tu nombre completo.');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return mostrarError(error, 'El correo no es válido.');
-  if (usuarios.some(u => u.correo === correo)) return mostrarError(error, 'Ya existe una cuenta con ese correo.');
   if (clave.length < 8) return mostrarError(error, 'La contraseña debe tener al menos 8 caracteres.');
   if (clave !== $('#reg-confirmar').value) return mostrarError(error, 'Las contraseñas no coinciden.');
   if (!$('#reg-terminos').checked) return mostrarError(error, 'Debes aceptar el tratamiento de datos.');
 
-  let doctorId = null;
-  if (rol === 'odontologo') {
-    doctorId = uid('d');
-    datos.doctores.push({ id: doctorId, nombre, especialidad, experiencia: null, bio: 'Nuevo integrante del equipo de la clínica.' });
-    guardar();
-  }
-  const nuevo = { nombre, correo, clave, rol, doctorId };
-  usuarios.push(nuevo);
-  escribir(CLAVES.usuarios, usuarios);
-  error.hidden = true;
-  form.reset();
-  actualizarRolRegistro();
-  cambiarTabAcceso('login');
-  iniciarSesion(nuevo, true);
+  conBotonOcupado(form, async () => {
+    try {
+      const r = await api('/auth/registro', { metodo: 'POST', cuerpo: { nombre, correo, clave, rol, especialidad } });
+      error.hidden = true;
+      form.reset();
+      actualizarRolRegistro();
+      cambiarTabAcceso('login');
+      await iniciarSesion(r, true);
+    } catch (err) {
+      mostrarError(error, err.message);
+    }
+  });
 });
 
 // Sesión y notificaciones
@@ -1219,11 +1083,7 @@ $('#btn-notificaciones').addEventListener('click', e => {
   mostrarPanelNotif($('#panel-notificaciones').hidden);
 });
 $('#notif-cerrar').addEventListener('click', () => mostrarPanelNotif(false));
-$('#notif-limpiar').addEventListener('click', () => {
-  datos.notifs.forEach(n => { n.leida = true; });
-  guardar();
-  renderNotifs();
-});
+$('#notif-limpiar').addEventListener('click', () => ejecutar(() => api('/notificaciones/leer', { metodo: 'POST' })));
 document.addEventListener('click', e => {
   const panel = $('#panel-notificaciones');
   if (!panel.hidden && !panel.contains(e.target) && !e.target.closest('#btn-notificaciones')) mostrarPanelNotif(false);
@@ -1247,9 +1107,9 @@ $('#ag-siguiente').addEventListener('click', () => { ui.agFecha = sumarDias(ui.a
 
 // Nueva cita
 $('#cita-proc').addEventListener('change', renderNueva);
-$('#cita-doctor').addEventListener('change', actualizarNueva);
-$('#pac-nombre').addEventListener('change', actualizarNueva);
-$('#pac-telefono').addEventListener('change', actualizarNueva);
+$('#cita-doctor').addEventListener('change', () => actualizarNueva());
+$('#pac-nombre').addEventListener('change', () => actualizarNueva());
+$('#pac-telefono').addEventListener('change', () => actualizarNueva());
 $('#form-cita').addEventListener('submit', e => {
   e.preventDefault();
   const form = e.currentTarget;
@@ -1263,18 +1123,24 @@ $('#form-cita').addEventListener('submit', e => {
   if (soloDigitos(telefono).length < 7) return mostrarError(error, 'Escribe un celular válido para enviarle recordatorios.');
   if (!p || ui.nueva.inicio === null) return mostrarError(error, 'Elige un horario.');
 
-  const r = crearCita({ paciente: nombre, telefono, proc, duracion: p.duracion, doctor: $('#cita-doctor').value, fecha: ui.nueva.fecha, inicio: ui.nueva.inicio, origen: 'panel' });
-  if (r.error) { mostrarError(error, r.error); actualizarNueva(); return; }
-
-  error.hidden = true;
-  registrar('Confirmación de cita enviada por WhatsApp', `${nombre} · ${p.nombre} · ${fmtCorta(r.cita.fecha)}, ${hhmm(r.cita.inicio)}`);
-  notificar('Nueva cita agendada', `${nombre} · ${p.nombre} · ${fmtCorta(r.cita.fecha)}, ${hhmm(r.cita.inicio)}`, 'cita');
-  form.reset();
-  ui.nueva.inicio = null;
-  ui.agDoctor = r.cita.doctor;
-  ui.agFecha = r.cita.fecha;
-  refrescar();
-  toast(`Cita agendada: ${fmtCorta(r.cita.fecha)}, ${hhmm(r.cita.inicio)}–${hhmm(r.cita.inicio + r.cita.duracion)}`, 'ok');
+  conBotonOcupado(form, async () => {
+    let cita;
+    try {
+      // El servidor vuelve a validar todo justo antes de guardar.
+      cita = await api('/citas', { metodo: 'POST', cuerpo: { paciente: nombre, telefono, proc, doctor: $('#cita-doctor').value, fecha: ui.nueva.fecha, inicio: ui.nueva.inicio } });
+    } catch (err) {
+      mostrarError(error, err.message);
+      actualizarNueva();
+      return;
+    }
+    error.hidden = true;
+    form.reset();
+    ui.nueva.inicio = null;
+    ui.agDoctor = cita.doctor;
+    ui.agFecha = cita.fecha;
+    await recargar();
+    toast(`Cita agendada: ${fmtCorta(cita.fecha)}, ${hhmm(cita.inicio)}–${hhmm(cita.inicio + cita.duracion)}`, 'ok');
+  });
 });
 
 // Bloqueos
@@ -1287,42 +1153,44 @@ $('#form-bloqueo').addEventListener('submit', e => {
   const fecha = $('#blq-fecha').value;
   const tipo = $('#blq-tipo').value;
   const motivo = $('#blq-motivo').value.trim();
+  const desde = tipo === 'parcial' ? $('#blq-desde').value : undefined;
+  const hasta = tipo === 'parcial' ? $('#blq-hasta').value : undefined;
 
   if (!doctorPor(doctor)) return mostrarError(error, 'Selecciona un odontólogo.');
   if (!fecha) return mostrarError(error, 'Elige una fecha.');
-  if (fecha < hoyISO()) return mostrarError(error, 'No puedes bloquear una fecha pasada.');
-  if (!esLaborable(fecha)) return mostrarError(error, 'Ese día la clínica no atiende; no hace falta bloquearlo.');
+  if (tipo === 'parcial' && (!desde || !hasta)) return mostrarError(error, 'Indica la hora de inicio y de fin.');
 
-  let desde = HORARIO.apertura, hasta = HORARIO.cierre;
-  if (tipo === 'parcial') {
-    desde = aMin($('#blq-desde').value || '00:00');
-    hasta = aMin($('#blq-hasta').value || '00:00');
-    if (desde % HORARIO.paso || hasta % HORARIO.paso) return mostrarError(error, 'Usa horas en bloques de 15 minutos (ej.: 14:00 o 14:15).');
-    if (desde < HORARIO.apertura || hasta > HORARIO.cierre) return mostrarError(error, `El rango debe estar entre ${hhmm(HORARIO.apertura)} y ${hhmm(HORARIO.cierre)}.`);
-    if (hasta <= desde) return mostrarError(error, 'La hora final debe ser posterior a la inicial.');
-  }
-  if (datos.bloqueos.some(b => b.doctor === doctor && b.fecha === fecha && solapa(desde, hasta, b.desde, b.hasta))) {
-    return mostrarError(error, 'Ya existe un bloqueo en ese rango.');
-  }
-  error.hidden = true;
-
-  const aplicar = () => {
-    const items = aplicarBloqueo({ doctor, fecha, desde, hasta, motivo: motivo || (tipo === 'parcial' ? 'Bloqueo por horas' : 'Día no laborable'), tipo });
-    if (items.length) notificar('Agenda bloqueada', `${plural(items.length, 'cita pasó', 'citas pasaron')} a re-agendamiento`, 'agenda');
+  const aplicar = async () => {
+    let r;
+    try {
+      r = await api('/bloqueos', { metodo: 'POST', cuerpo: { doctor, fecha, tipo, desde, hasta, motivo } });
+    } catch (err) {
+      cerrarModal();
+      return mostrarError(error, err.message);
+    }
     form.reset();
     $('#blq-rango').hidden = true;
     cerrarModal();
-    refrescar();
-    toast(items.length ? `Bloqueo creado. ${plural(items.length, 'paciente enviado', 'pacientes enviados')} a re-agendamiento.` : 'Bloqueo creado.', 'ok');
+    await recargar();
+    toast(r.items.length ? `Bloqueo creado. ${plural(r.items.length, 'paciente enviado', 'pacientes enviados')} a re-agendamiento.` : 'Bloqueo creado.', 'ok');
   };
 
-  const afectadas = citasAfectadas(doctor, fecha, desde, hasta);
-  if (!afectadas.length) return aplicar();
-  abrirModal({
-    titulo: 'Hay citas en ese horario',
-    tipo: 'peligro',
-    cuerpo: `<p>Este bloqueo afecta ${plural(afectadas.length, 'cita', 'citas')}. Se cancelarán, se avisará a los pacientes y pasarán a re-agendamiento.</p>${listaAfectadasHTML(afectadas)}`,
-    acciones: [{ texto: 'Volver', accion: cerrarModal }, { texto: 'Bloquear y re-agendar', clase: 'btn-danger', accion: aplicar }]
+  conBotonOcupado(form, async () => {
+    // El servidor valida el rango y dice qué citas quedarían afectadas.
+    let afectadas;
+    try {
+      afectadas = await api(`/bloqueos/afectadas?${consulta({ doctor, fecha, tipo, desde, hasta })}`);
+    } catch (err) {
+      return mostrarError(error, err.message);
+    }
+    error.hidden = true;
+    if (!afectadas.length) return aplicar();
+    abrirModal({
+      titulo: 'Hay citas en ese horario',
+      tipo: 'peligro',
+      cuerpo: `<p>Este bloqueo afecta ${plural(afectadas.length, 'cita', 'citas')}. Se cancelarán, se avisará a los pacientes y pasarán a re-agendamiento.</p>${listaAfectadasHTML(afectadas)}`,
+      acciones: [{ texto: 'Volver', accion: cerrarModal }, { texto: 'Bloquear y re-agendar', clase: 'btn-danger', accion: aplicar }]
+    });
   });
 });
 
@@ -1334,62 +1202,47 @@ $('#btn-emergencia').addEventListener('click', () => {
 $('#em-ejecutar').addEventListener('click', () => abrirEmergencia($('#em-doctor').value, $('#em-fecha').value));
 
 // Cola
-$('#cola-auto').addEventListener('click', () => {
-  const r = reagendarAutomatico(colaAlcance().slice());
-  if (r.ok) notificar('Re-agendamiento automático', `${plural(r.ok, 'paciente recibió', 'pacientes recibieron')} un nuevo horario`, 'agenda');
-  refrescar();
-  toast(`${plural(r.ok, 'paciente re-agendado', 'pacientes re-agendados')}${r.sinCupo ? ` · ${r.sinCupo} sin cupo` : ''}`, r.ok ? 'ok' : 'error');
+$('#cola-auto').addEventListener('click', async () => {
+  const r = await reagendarAutomatico();
+  if (r) toast(`${plural(r.ok, 'paciente re-agendado', 'pacientes re-agendados')}${r.sinCupo ? ` · ${r.sinCupo} sin cupo` : ''}`, r.ok ? 'ok' : 'error');
 });
 
 // Catálogo y ajustes
 $('#cat-guardar').addEventListener('click', guardarCatalogo);
-$$('[data-config]').forEach(input => input.addEventListener('change', () => {
-  datos.config[input.dataset.config] = input.checked;
-  guardar();
-  toast('Preferencia guardada', 'ok');
-}));
-$('#btn-reset').addEventListener('click', () => abrirModal({
-  titulo: 'Restablecer datos de ejemplo',
-  tipo: 'peligro',
-  cuerpo: '<p>Se borrarán las citas, bloqueos y cambios hechos en este navegador y se cargarán de nuevo los datos de demostración. Las cuentas creadas se conservan.</p>',
-  acciones: [
-    { texto: 'Volver', accion: cerrarModal },
-    { texto: 'Restablecer', clase: 'btn-danger', accion: () => {
-      const registrados = datos.doctores.filter(d => !DOCTORES_BASE.some(b => b.id === d.id));
-      datos = crearDatosDemo();
-      datos.doctores.push(...registrados);
-      cerrarModal();
-      ui.seccion = 'resumen';
-      refrescar();
-      renderPanel();
-      toast('Datos de ejemplo restablecidos', 'ok');
-    } }
-  ]
+$$('[data-config]').forEach(input => input.addEventListener('change', async () => {
+  const r = await ejecutar(() => api('/config', { metodo: 'PUT', cuerpo: { [input.dataset.config]: input.checked } }));
+  if (r) toast('Preferencia guardada', 'ok');
 }));
 
 
 /* ---------------------------------------------------------
-   13. INICIO
+   12. INICIO
    --------------------------------------------------------- */
-function iniciar() {
-  datos = leer(CLAVES.datos, null);
-  if (!datos || !Array.isArray(datos.citas)) {
-    datos = crearDatosDemo();
-    guardar();
-  }
-  usuarios = leer(CLAVES.usuarios, null);
-  if (!Array.isArray(usuarios)) {
-    usuarios = clonar(USUARIOS_BASE);
-    escribir(CLAVES.usuarios, usuarios);
-  }
-  const correo = leerSesion();
-  usuario = usuarios.find(u => u.correo === correo) || null;
-
+async function iniciar() {
   actualizarRolRegistro();
+  try {
+    await cargarPublico();
+  } catch (e) {
+    toast('No se pudo conectar con el servidor. Revisa que esté encendido.', 'error');
+  }
+
+  // Si hay una sesión guardada, se valida con el servidor.
+  token = leerToken();
+  if (token) {
+    try {
+      usuario = (await api('/auth/me')).usuario;
+      await cargarPanel();
+    } catch (e) {
+      token = null;
+      usuario = null;
+      borrarToken();
+    }
+  }
+
   renderSesion();
   irA(usuario ? 'panel' : 'paciente');
   setInterval(tic, 60000);
-  setInterval(simularChatbot, 45000);
+  setInterval(actualizarEnSegundoPlano, REFRESCO_MS);
 }
 
 iniciar();

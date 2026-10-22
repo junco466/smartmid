@@ -220,7 +220,7 @@
           <!-- Registro -->
           <form id="form-registro" role="tabpanel" aria-labelledby="tab-registro" novalidate hidden>
             <h2 class="auth-title">Crea tu cuenta</h2>
-            <p class="card-sub">Para odontólogos y personal administrativo de la clínica.</p>
+            <p class="card-sub">Para odontólogos y personal administrativo de la clínica. Si el registro está cerrado, pide al administrador que cree tu cuenta.</p>
             <div class="field"><label for="reg-nombre">Nombre completo</label><input type="text" id="reg-nombre" autocomplete="name" placeholder="Ej.: Dra. María López" required></div>
             <div class="field"><label for="reg-correo">Correo electrónico</label><input type="email" id="reg-correo" autocomplete="email" placeholder="nombre@clinica.co" required></div>
             <div class="field-row">
@@ -473,16 +473,19 @@
             <div class="card">
               <h3>Mensajes por WhatsApp</h3>
               <p class="card-sub">Lo que el sistema hace solo para evitar citas perdidas.</p>
+              <p class="alert" id="ajustes-aviso" hidden>Solo el administrador de la clínica puede cambiar las automatizaciones.</p>
               <label class="switch"><input type="checkbox" data-config="rec24"> Recordatorio 24 horas antes</label>
               <label class="switch"><input type="checkbox" data-config="rec2"> Recordatorio 2 horas antes</label>
               <label class="switch"><input type="checkbox" data-config="autoReagendar"> Ofrecer un nuevo horario apenas se cancela una cita</label>
               <label class="switch"><input type="checkbox" data-config="avisoEmergencia"> Avisar a los pacientes en emergencias y bloqueos</label>
             </div>
             <div class="card">
-              <h3>Modo demostración</h3>
-              <p class="card-sub">Opciones para probar el prototipo.</p>
-              <label class="switch"><input type="checkbox" data-config="simular"> Simular reservas que llegan del chatbot de WhatsApp</label>
-              <div class="actions actions-start"><button type="button" class="btn btn-outline" id="btn-reset">Restablecer datos de ejemplo</button></div>
+              <h3>Chatbot de WhatsApp</h3>
+              <p class="card-sub">Las citas que agenda o cancela el chatbot llegan solas a esta agenda.</p>
+              <dl class="kv">
+                <dt>Número</dt><dd id="ajustes-whatsapp">—</dd>
+                <dt>Actualización</dt><dd>El panel consulta el servidor cada 30 segundos.</dd>
+              </dl>
             </div>
           </div>
         </section>
@@ -528,7 +531,7 @@
 <footer class="site-footer">
   <div class="container">
     <p><strong>Smart Mind</strong> · Transformar la gestión odontológica mediante tecnología inteligente y automatización.</p>
-    <p class="fine-print">Prototipo funcional con datos simulados guardados en este navegador.</p>
+    <p class="fine-print">Agenda conectada con el chatbot de WhatsApp.</p>
   </div>
 </footer>
 
