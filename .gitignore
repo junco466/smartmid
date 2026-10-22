@@ -1,0 +1,16 @@
+# Dependencias
+node_modules/
+
+# Secretos
+.env
+
+# Base de datos local
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Sistema
+.DS_Store
+Thumbs.db
+~$*
