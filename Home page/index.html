@@ -230,13 +230,7 @@
               </div>
               <div class="field" id="reg-esp-campo">
                 <label for="reg-especialidad">Especialidad</label>
-                <select id="reg-especialidad">
-                  <option value="general">Odontología general y estética</option>
-                  <option value="endodoncia">Endodoncia</option>
-                  <option value="ortodoncia">Ortodoncia</option>
-                  <option value="periodoncia">Periodoncia</option>
-                  <option value="cirugia">Cirugía oral</option>
-                </select>
+                <select id="reg-especialidad"><!-- Generado por script.js --></select>
               </div>
             </div>
             <div class="field-row">
@@ -269,6 +263,7 @@
         <button type="button" class="side-link" data-seccion="bloqueos">Bloqueos y emergencias</button>
         <button type="button" class="side-link" data-seccion="cola">Re-agendamiento <span class="side-count is-empty" id="cola-count">0</span></button>
         <button type="button" class="side-link" data-seccion="catalogo">Procedimientos</button>
+        <button type="button" class="side-link" data-seccion="equipo" id="link-equipo" hidden>Equipo y servicios</button>
         <button type="button" class="side-link" data-seccion="ajustes">Automatizaciones</button>
       </aside>
 
@@ -451,18 +446,55 @@
 
         <!-- ========== PROCEDIMIENTOS Y TARIFAS ========== -->
         <section class="panel-section" data-panel="catalogo" aria-labelledby="sec-catalogo" hidden>
-          <div class="section-bar"><h2 id="sec-catalogo">Procedimientos y tarifas</h2></div>
+          <div class="section-bar">
+            <h2 id="sec-catalogo">Procedimientos y tarifas</h2>
+            <button type="button" class="btn btn-primary btn-sm" id="cat-nuevo" hidden>+ Nuevo procedimiento</button>
+          </div>
           <div class="card">
             <p class="card-sub">Duración rígida (múltiplos de 15 min) y tarifa de cada procedimiento. Las tarifas se publican en la página de pacientes.</p>
             <p class="alert" id="cat-aviso" hidden>Solo el administrador de la clínica puede editar el catálogo.</p>
             <div class="table-scroll">
               <table class="table" id="tabla-catalogo">
-                <thead><tr><th>Procedimiento</th><th>Duración (min)</th><th>Tarifa (COP)</th><th>Tipo</th></tr></thead>
+                <thead><tr><th>Procedimiento</th><th>Duración (min)</th><th>Tarifa (COP)</th><th>Tipo</th><th class="col-admin">Estado</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
             <p class="fine-print">Las citas ya agendadas conservan su duración original.</p>
             <div class="actions"><button type="button" class="btn btn-primary" id="cat-guardar">Guardar cambios</button></div>
+          </div>
+        </section>
+
+        <!-- ========== EQUIPO Y SERVICIOS (solo administrador) ========== -->
+        <section class="panel-section" data-panel="equipo" aria-labelledby="sec-equipo" hidden>
+          <div class="section-bar">
+            <h2 id="sec-equipo">Equipo y servicios</h2>
+            <p class="section-sub">Lo que cambies aquí aparece de inmediato en la página de pacientes, en la agenda y en el chatbot.</p>
+          </div>
+          <section class="card" aria-labelledby="eq-doc-titulo">
+            <div class="card-bar">
+              <h3 id="eq-doc-titulo">Odontólogos</h3>
+              <button type="button" class="btn btn-primary btn-sm" data-equipo-nuevo="doctor">+ Agregar odontólogo</button>
+            </div>
+            <p class="card-sub">Cada odontólogo puede tener varias especialidades. Un odontólogo inactivo no aparece en la página ni puede entrar al panel.</p>
+            <ul class="list" id="lista-equipo-doctores"></ul>
+          </section>
+          <div class="grid grid-2">
+            <section class="card" aria-labelledby="eq-esp-titulo">
+              <div class="card-bar">
+                <h3 id="eq-esp-titulo">Especialidades</h3>
+                <button type="button" class="btn btn-outline btn-sm" data-equipo-nuevo="especialidad">+ Nueva</button>
+              </div>
+              <p class="card-sub">Qué procedimientos incluye cada especialidad.</p>
+              <ul class="list" id="lista-equipo-especialidades"></ul>
+            </section>
+            <section class="card" aria-labelledby="eq-mot-titulo">
+              <div class="card-bar">
+                <h3 id="eq-mot-titulo">Motivos de consulta</h3>
+                <button type="button" class="btn btn-outline btn-sm" data-equipo-nuevo="motivo">+ Nuevo</button>
+              </div>
+              <p class="card-sub">La guía "¿Qué especialista necesito?" para pacientes y el chatbot.</p>
+              <ul class="list" id="lista-equipo-motivos"></ul>
+            </section>
           </div>
         </section>
 

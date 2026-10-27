@@ -8,6 +8,13 @@ npm install
 npm run dev
 ```
 
+Datos de ejemplo (citas, cola y bloqueos), idealmente en una base aparte:
+
+```powershell
+$env:DB_PATH="smartmind-pruebas.db"; npm run demo     # solo si no hay citas
+npm run demo -- --forzar                              # borra citas, cola, bloqueos y mensajes y los crea de nuevo
+```
+
 - Web (pacientes + panel): `http://localhost:3000/`
 - Webhook de Whapi: `POST /webhook/whapi` (con `?secreto=` si defines `WHAPI_WEBHOOK_SECRET`)
 - Salud: `GET /salud`
@@ -18,9 +25,11 @@ npm run dev
 |---|---|
 | `server.js` | Arranque, webhook, archivos estáticos |
 | `whapi.js` | Envío de mensajes por Whapi |
-| `src/config.js` | Horario, especialidades, datos iniciales |
-| `src/db.js` | Esquema SQLite y datos iniciales |
+| `src/config.js` | Horario de la clínica y datos con los que se llena una base nueva |
+| `src/db.js` | Esquema SQLite, migraciones y datos iniciales |
 | `src/agenda.js` | Reglas de agenda (cruces, bloqueos, re-agendamiento, estadísticas) |
+| `src/equipo.js` | Odontólogos, especialidades, procedimientos y motivos (administración) |
+| `scripts/demo.js` | Datos de ejemplo (`npm run demo`) |
 | `src/auth.js` | Login con JWT y alcance por rol |
 | `src/rutas.js` | Endpoints REST `/api/*` |
 | `src/bot.js` | Conversación del chatbot |
@@ -64,5 +73,17 @@ Con sesión (`Authorization: Bearer <token>`). Un odontólogo solo ve y modifica
 | GET | `/api/notificaciones` | Notificaciones del panel |
 | POST | `/api/notificaciones/leer` | Marcar como leídas |
 | GET / PUT | `/api/config` | Automatizaciones; PUT solo admin |
+
+Solo administrador (equipo y servicios). PUT reemplaza todos los campos del registro:
+
+| Método | Ruta | Cuerpo |
+|---|---|---|
+| GET | `/api/admin/equipo` | Todo, incluidos los inactivos |
+| POST / PUT | `/api/admin/doctores[/:id]` | `{nombre, especialidades: [...], experiencia?, bio?, correo?, clave?, activo?}` |
+| POST / PUT | `/api/admin/especialidades[/:id]` | `{nombre, procs: [...], activo?}` |
+| POST / PUT | `/api/admin/procedimientos[/:id]` | `{nombre, duracion, precio, tipo?, especialidades?: [...], activo?}` |
+| POST / PUT / DELETE | `/api/admin/motivos[/:id]` | `{motivo, especialidad, detalle?, activo?}` |
+
+Un odontólogo con citas programadas no se puede desactivar. Los inactivos no aparecen en la página ni en el chatbot, y su cuenta no puede iniciar sesión.
 
 Errores: `{error: "mensaje"}` con 400 (datos), 401 (sin sesión), 403 (sin permiso), 404 o 409 (regla de agenda).

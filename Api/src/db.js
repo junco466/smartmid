@@ -1,7 +1,10 @@
 // Base de datos única de Smart Mind: la usan el chatbot de WhatsApp y el panel web.
 const path = require('path');
 const Database = require('better-sqlite3');
-const { CATALOGO_BASE, DOCTORES_BASE, USUARIOS_BASE, CONFIG_BASE, ESTADOS, ORIGENES, TIPOS_BLOQUEO } = require('./config');
+const {
+  CATALOGO_BASE, DOCTORES_BASE, USUARIOS_BASE, CONFIG_BASE, ESPECIALIDADES, MOTIVOS,
+  ESTADOS, ORIGENES, TIPOS_BLOQUEO
+} = require('./config');
 const { cifrarClave } = require('./claves');
 
 const db = new Database(process.env.DB_PATH || path.join(__dirname, '..', 'smartmind.db'));
@@ -22,7 +25,6 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS doctores (
     id TEXT PRIMARY KEY,
     nombre TEXT NOT NULL,
-    especialidad TEXT NOT NULL,
     experiencia INTEGER,
     bio TEXT,
     activo INTEGER NOT NULL DEFAULT 1
@@ -34,7 +36,39 @@ db.exec(`
     duracion INTEGER NOT NULL CHECK (duracion > 0 AND duracion % 15 = 0),
     precio INTEGER NOT NULL CHECK (precio >= 0),
     tipo TEXT,
-    orden INTEGER NOT NULL DEFAULT 0
+    orden INTEGER NOT NULL DEFAULT 0,
+    activo INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE IF NOT EXISTS especialidades (
+    id TEXT PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    orden INTEGER NOT NULL DEFAULT 0,
+    activo INTEGER NOT NULL DEFAULT 1
+  );
+
+  -- Qué procedimientos incluye cada especialidad.
+  CREATE TABLE IF NOT EXISTS especialidad_procs (
+    especialidad_id TEXT NOT NULL REFERENCES especialidades(id) ON DELETE CASCADE,
+    proc_id TEXT NOT NULL REFERENCES procedimientos(id) ON DELETE CASCADE,
+    PRIMARY KEY (especialidad_id, proc_id)
+  );
+
+  -- Un odontólogo puede tener varias especialidades.
+  CREATE TABLE IF NOT EXISTS doctor_especialidades (
+    doctor_id TEXT NOT NULL REFERENCES doctores(id) ON DELETE CASCADE,
+    especialidad_id TEXT NOT NULL REFERENCES especialidades(id) ON DELETE CASCADE,
+    PRIMARY KEY (doctor_id, especialidad_id)
+  );
+
+  -- Guía "¿Qué especialista necesito?" que usan la página y el chatbot.
+  CREATE TABLE IF NOT EXISTS motivos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    motivo TEXT NOT NULL,
+    especialidad_id TEXT NOT NULL REFERENCES especialidades(id),
+    detalle TEXT,
+    orden INTEGER NOT NULL DEFAULT 0,
+    activo INTEGER NOT NULL DEFAULT 1
   );
 
   CREATE TABLE IF NOT EXISTS usuarios (
@@ -120,18 +154,55 @@ db.exec(`
   );
 `);
 
-// Carga los datos iniciales que falten (no toca lo que ya existe).
+const columnas = tabla => db.prepare(`SELECT name FROM pragma_table_info('${tabla}')`).all().map(c => c.name);
+const vacia = tabla => !db.prepare(`SELECT COUNT(*) n FROM ${tabla}`).get().n;
+
+// Bases creadas antes de que el catálogo se administrara desde el panel.
+if (!columnas('procedimientos').includes('activo')) {
+  db.exec('ALTER TABLE procedimientos ADD COLUMN activo INTEGER NOT NULL DEFAULT 1');
+}
+
+// Carga los datos iniciales solo en tablas vacías: después todo se administra desde el panel.
 function sembrar() {
-  const insDoctor = db.prepare(`INSERT OR IGNORE INTO doctores (id, nombre, especialidad, experiencia, bio) VALUES (@id, @nombre, @especialidad, @experiencia, @bio)`);
-  const insProc = db.prepare(`INSERT OR IGNORE INTO procedimientos (id, nombre, duracion, precio, tipo, orden) VALUES (?, ?, ?, ?, ?, ?)`);
-  const insConfig = db.prepare(`INSERT OR IGNORE INTO config (clave, valor) VALUES (?, ?)`);
-  const insUsuario = db.prepare(`INSERT OR IGNORE INTO usuarios (nombre, correo, clave_hash, rol, doctor_id) VALUES (?, ?, ?, ?, ?)`);
+  const insProc = db.prepare('INSERT INTO procedimientos (id, nombre, duracion, precio, tipo, orden) VALUES (?, ?, ?, ?, ?, ?)');
+  const insEsp = db.prepare('INSERT INTO especialidades (id, nombre, orden) VALUES (?, ?, ?)');
+  const insEspProc = db.prepare('INSERT OR IGNORE INTO especialidad_procs (especialidad_id, proc_id) VALUES (?, ?)');
+  const insDoctor = db.prepare('INSERT INTO doctores (id, nombre, experiencia, bio) VALUES (@id, @nombre, @experiencia, @bio)');
+  const insDocEsp = db.prepare('INSERT OR IGNORE INTO doctor_especialidades (doctor_id, especialidad_id) VALUES (?, ?)');
+  const insMotivo = db.prepare('INSERT INTO motivos (motivo, especialidad_id, detalle, orden) VALUES (?, ?, ?, ?)');
+  const insConfig = db.prepare('INSERT OR IGNORE INTO config (clave, valor) VALUES (?, ?)');
+  const insUsuario = db.prepare('INSERT INTO usuarios (nombre, correo, clave_hash, rol, doctor_id) VALUES (?, ?, ?, ?, ?)');
 
   db.transaction(() => {
-    if (!db.prepare('SELECT COUNT(*) n FROM doctores').get().n) DOCTORES_BASE.forEach(d => insDoctor.run(d));
-    Object.entries(CATALOGO_BASE).forEach(([id, p], i) => insProc.run(id, p.nombre, p.duracion, p.precio, p.tipo, i));
+    if (vacia('procedimientos')) {
+      Object.entries(CATALOGO_BASE).forEach(([id, p], i) => insProc.run(id, p.nombre, p.duracion, p.precio, p.tipo, i));
+    }
+    if (vacia('especialidades')) {
+      Object.entries(ESPECIALIDADES).forEach(([id, e], i) => {
+        insEsp.run(id, e.nombre, i);
+        e.procs.forEach(proc => insEspProc.run(id, proc));
+      });
+    }
+
+    // Antes cada odontólogo tenía una sola especialidad en la columna doctores.especialidad.
+    if (columnas('doctores').includes('especialidad')) {
+      db.exec(`INSERT OR IGNORE INTO doctor_especialidades (doctor_id, especialidad_id)
+        SELECT d.id, d.especialidad FROM doctores d JOIN especialidades e ON e.id = d.especialidad`);
+      db.exec('ALTER TABLE doctores DROP COLUMN especialidad');
+      console.log('Especialidades de los odontólogos migradas a doctor_especialidades.');
+    }
+
+    if (vacia('doctores')) {
+      DOCTORES_BASE.forEach(d => {
+        insDoctor.run(d);
+        insDocEsp.run(d.id, d.especialidad);
+      });
+    }
+    if (vacia('motivos')) {
+      MOTIVOS.forEach((m, i) => insMotivo.run(m.motivo, m.especialidad, m.detalle, i));
+    }
     Object.entries(CONFIG_BASE).forEach(([clave, valor]) => insConfig.run(clave, JSON.stringify(valor)));
-    if (!db.prepare('SELECT COUNT(*) n FROM usuarios').get().n) {
+    if (vacia('usuarios')) {
       USUARIOS_BASE.forEach(u => insUsuario.run(u.nombre, u.correo, cifrarClave(u.clave), u.rol, u.doctorId));
     }
   })();

@@ -2,7 +2,8 @@
 const express = require('express');
 const agenda = require('./agenda');
 const auth = require('./auth');
-const { HORARIO, ESPECIALIDADES, MOTIVOS } = require('./config');
+const equipo = require('./equipo');
+const { HORARIO } = require('./config');
 const { hoyISO, hhmm, aMin, fmtCorta } = require('./utils');
 
 const router = express.Router();
@@ -19,8 +20,8 @@ router.get('/publico/info', (req, res) => {
   res.json({
     doctores: agenda.doctores(),
     catalogo: agenda.catalogo(),
-    especialidades: ESPECIALIDADES,
-    motivos: MOTIVOS,
+    especialidades: agenda.especialidades(),
+    motivos: agenda.motivos(),
     horario: HORARIO,
     whatsapp: process.env.WHATSAPP_NUMERO || null
   });
@@ -65,7 +66,7 @@ router.get('/catalogo', (req, res) => res.json(agenda.catalogo()));
 
 // Cuerpo: { val: { duracion: 30, precio: 40000 }, ... }
 router.put('/catalogo', requiereAdmin, (req, res) => {
-  const actual = agenda.catalogo();
+  const actual = agenda.catalogo({ todos: true });
   const cambios = {};
   for (const [id, v] of Object.entries(req.body || {})) {
     const p = actual[id];
@@ -233,6 +234,37 @@ router.post('/notificaciones/leer', (req, res) => {
 /* ---------- Automatizaciones ---------- */
 router.get('/config', (req, res) => res.json(agenda.leerConfig()));
 router.put('/config', requiereAdmin, (req, res) => res.json(agenda.guardarConfig(req.body || {})));
+
+
+/* ---------- Equipo y servicios (solo administrador) ---------- */
+// Responde 201 al crear y 200 al editar; las reglas incumplidas devuelven 400.
+const guardar = (fn, { crear = false } = {}) => (req, res) => {
+  const r = fn(crear ? null : req.params.id, req.body || {});
+  if (r.error) return fallo(res, r.error);
+  res.status(crear ? 201 : 200).json(r);
+};
+
+router.get('/admin/equipo', requiereAdmin, (req, res) => res.json(equipo.equipo()));
+
+// Cuerpo: { nombre, especialidades: ['general'], experiencia?, bio?, correo?, clave?, activo? }
+router.post('/admin/doctores', requiereAdmin, guardar(equipo.guardarDoctor, { crear: true }));
+router.put('/admin/doctores/:id', requiereAdmin, guardar(equipo.guardarDoctor));
+
+// Cuerpo: { nombre, procs: ['val', 'rx'], activo? }
+router.post('/admin/especialidades', requiereAdmin, guardar(equipo.guardarEspecialidad, { crear: true }));
+router.put('/admin/especialidades/:id', requiereAdmin, guardar(equipo.guardarEspecialidad));
+
+// Cuerpo: { nombre, duracion, precio, tipo?, activo?, especialidades?: ['general'] }
+router.post('/admin/procedimientos', requiereAdmin, guardar(equipo.guardarProcedimiento, { crear: true }));
+router.put('/admin/procedimientos/:id', requiereAdmin, guardar(equipo.guardarProcedimiento));
+
+// Cuerpo: { motivo, especialidad, detalle?, activo? }
+router.post('/admin/motivos', requiereAdmin, guardar(equipo.guardarMotivo, { crear: true }));
+router.put('/admin/motivos/:id', requiereAdmin, guardar((id, b) => equipo.guardarMotivo(idNum(id), b)));
+router.delete('/admin/motivos/:id', requiereAdmin, (req, res) => {
+  if (!equipo.eliminarMotivo(idNum(req.params.id))) return fallo(res, 'El motivo no existe.', 404);
+  res.status(204).end();
+});
 
 
 router.use((req, res) => fallo(res, 'Ruta no encontrada.', 404));

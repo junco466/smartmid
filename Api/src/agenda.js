@@ -1,7 +1,7 @@
 // Reglas de agenda de Smart Mind (cero cruces, cero errores de duración).
 // Portadas del prototipo web para que el panel y el chatbot usen exactamente las mismas.
 const db = require('./db');
-const { HORARIO, ESPECIALIDADES, ESTADOS, TIPOS_BLOQUEO } = require('./config');
+const { HORARIO, ESTADOS, TIPOS_BLOQUEO } = require('./config');
 const {
   hoyISO, sumarDias, ahoraMin, hhmm, esLaborable, solapa, fmtCorta,
   esFechaValida, minutosLaborales, normalizarTelefono
@@ -11,19 +11,55 @@ const {
 /* ---------------------------------------------------------
    1. LECTURAS
    --------------------------------------------------------- */
+// Los nombres van incluidos para que el historial se lea aunque el procedimiento o el odontólogo se desactiven.
+const NOMBRES = tabla => `(SELECT nombre FROM procedimientos WHERE id = ${tabla}.proc) AS procNombre,
+  (SELECT nombre FROM doctores WHERE id = ${tabla}.doctor_id) AS doctorNombre`;
 const COLS_CITA = `id, paciente, telefono, proc, duracion, doctor_id AS doctor, fecha, inicio, estado, origen,
-  motivo_cancelacion AS motivoCancelacion, creado`;
+  motivo_cancelacion AS motivoCancelacion, creado, ${NOMBRES('citas')}`;
 const COLS_BLOQUEO = 'id, doctor_id AS doctor, fecha, desde, hasta, motivo, tipo';
 const COLS_COLA = `id, cita_id AS citaId, paciente, telefono, proc, duracion, doctor_id AS doctor,
-  fecha_original AS fechaOriginal, inicio_original AS inicioOriginal, motivo, creado`;
+  fecha_original AS fechaOriginal, inicio_original AS inicioOriginal, motivo, creado, ${NOMBRES('cola')}`;
 
-const doctores = () => db.prepare('SELECT id, nombre, especialidad, experiencia, bio FROM doctores WHERE activo = 1 ORDER BY id').all();
-const doctorPor = id => db.prepare('SELECT id, nombre, especialidad, experiencia, bio FROM doctores WHERE id = ? AND activo = 1').get(id);
-const nombreDoc = id => doctorPor(id)?.nombre || 'Odontólogo';
+// Agrega a cada odontólogo la lista de ids de sus especialidades activas (o todas, con `todas`).
+function conEspecialidades(docs, todas = false) {
+  const pares = db.prepare(`SELECT de.doctor_id, de.especialidad_id FROM doctor_especialidades de
+    JOIN especialidades e ON e.id = de.especialidad_id ${todas ? '' : 'WHERE e.activo = 1'} ORDER BY e.orden, e.id`).all();
+  return docs.map(d => ({ ...d, especialidades: pares.filter(p => p.doctor_id === d.id).map(p => p.especialidad_id) }));
+}
 
-function catalogo() {
-  const filas = db.prepare('SELECT id, nombre, duracion, precio, tipo FROM procedimientos ORDER BY orden, id').all();
-  return Object.fromEntries(filas.map(({ id, ...p }) => [id, p]));
+// Por defecto solo los activos; `todos` los incluye para la pantalla de administración.
+function doctores({ todos = false } = {}) {
+  const filas = db.prepare(`SELECT id, nombre, experiencia, bio, activo FROM doctores ${todos ? '' : 'WHERE activo = 1'} ORDER BY nombre`).all();
+  return conEspecialidades(filas.map(d => ({ ...d, activo: !!d.activo })), todos);
+}
+function doctorPor(id) {
+  const fila = db.prepare('SELECT id, nombre, experiencia, bio FROM doctores WHERE id = ? AND activo = 1').get(id);
+  return fila ? conEspecialidades([fila])[0] : undefined;
+}
+const nombreDoc = id => db.prepare('SELECT nombre FROM doctores WHERE id = ?').get(id)?.nombre || 'Odontólogo';
+
+function catalogo({ todos = false } = {}) {
+  const filas = db.prepare(`SELECT id, nombre, duracion, precio, tipo, activo FROM procedimientos ${todos ? '' : 'WHERE activo = 1'} ORDER BY orden, id`).all();
+  return Object.fromEntries(filas.map(({ id, activo, ...p }) => [id, todos ? { ...p, activo: !!activo } : p]));
+}
+
+// { general: { nombre, procs: ['val', ...] }, ... }
+function especialidades({ todos = false } = {}) {
+  const esp = db.prepare(`SELECT id, nombre, activo FROM especialidades ${todos ? '' : 'WHERE activo = 1'} ORDER BY orden, id`).all();
+  const procs = db.prepare(`SELECT ep.especialidad_id, ep.proc_id FROM especialidad_procs ep
+    JOIN procedimientos p ON p.id = ep.proc_id ${todos ? '' : 'WHERE p.activo = 1'} ORDER BY p.orden, p.id`).all();
+  return Object.fromEntries(esp.map(e => [e.id, {
+    nombre: e.nombre,
+    procs: procs.filter(p => p.especialidad_id === e.id).map(p => p.proc_id),
+    ...(todos ? { activo: !!e.activo } : {})
+  }]));
+}
+
+function motivos({ todos = false } = {}) {
+  return db.prepare(`SELECT m.id, m.motivo, m.especialidad_id AS especialidad, m.detalle, m.activo FROM motivos m
+    JOIN especialidades e ON e.id = m.especialidad_id ${todos ? '' : 'WHERE m.activo = 1 AND e.activo = 1'} ORDER BY m.orden, m.id`)
+    .all()
+    .map(m => (todos ? { ...m, activo: !!m.activo } : (({ activo, ...resto }) => resto)(m)));
 }
 // Cambios: { val: { duracion, precio }, ... } (ya validados). Las citas existentes conservan su duración.
 function actualizarCatalogo(cambios) {
@@ -33,9 +69,16 @@ function actualizarCatalogo(cambios) {
   })();
   return catalogo();
 }
-const procPor = id => db.prepare('SELECT id, nombre, duracion, precio, tipo FROM procedimientos WHERE id = ?').get(id);
+// Incluye procedimientos desactivados: las citas antiguas siguen mostrando su nombre.
+const procPor = id => db.prepare('SELECT id, nombre, duracion, precio, tipo, activo FROM procedimientos WHERE id = ?').get(id);
 const nombreProc = id => procPor(id)?.nombre || 'Procedimiento';
-const puedeHacer = (doc, proc) => !!doc && (ESPECIALIDADES[doc.especialidad]?.procs || []).includes(proc);
+
+// ¿Alguna especialidad activa del odontólogo incluye este procedimiento activo?
+const puedeHacer = (doc, proc) => !!doc && !!db.prepare(`SELECT 1 FROM doctor_especialidades de
+    JOIN especialidades e ON e.id = de.especialidad_id AND e.activo = 1
+    JOIN especialidad_procs ep ON ep.especialidad_id = de.especialidad_id
+    JOIN procedimientos p ON p.id = ep.proc_id AND p.activo = 1
+    WHERE de.doctor_id = ? AND ep.proc_id = ?`).get(doc.id, proc);
 
 const citaPor = id => db.prepare(`SELECT ${COLS_CITA} FROM citas WHERE id = ?`).get(id);
 const bloqueoPor = id => db.prepare(`SELECT ${COLS_BLOQUEO} FROM bloqueos WHERE id = ?`).get(id);
@@ -223,7 +266,9 @@ const crearCita = db.transaction(d => {
   };
   if (datos.paciente.length < 2) return { error: 'Escribe el nombre del paciente.' };
   if (!p) return { error: 'El procedimiento no existe.' };
-  const error = validarHorario(datos);
+  if (!p.activo && datos.origen !== 'reagendada') return { error: 'Ese procedimiento ya no se ofrece.' };
+  // Una re-agendada conserva su procedimiento aunque el odontólogo ya no lo ofrezca.
+  const error = validarHorario(datos.origen === 'reagendada' ? { ...datos, proc: null } : datos);
   if (error) return { error };
   const { lastInsertRowid } = insertarCita.run(datos);
   return { cita: citaPor(lastInsertRowid) };
@@ -389,7 +434,7 @@ function estadisticas({ doctor } = {}) {
 }
 
 module.exports = {
-  doctores, doctorPor, nombreDoc, catalogo, actualizarCatalogo, procPor, nombreProc, puedeHacer,
+  doctores, doctorPor, nombreDoc, catalogo, especialidades, motivos, actualizarCatalogo, procPor, nombreProc, puedeHacer,
   citaPor, bloqueoPor, itemColaPor, listarCitas, listarBloqueos, listarCola,
   leerConfig, guardarConfig,
   registrar, notificar, listarMensajes, listarNotificaciones, marcarNotificacionesLeidas,

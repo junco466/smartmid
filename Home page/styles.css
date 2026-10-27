@@ -260,6 +260,19 @@ select {
 .check { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; font-size: .9rem; cursor: pointer; }
 .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--teal-600); }
 
+textarea { min-height: 84px; padding: 10px 12px; resize: vertical; line-height: 1.45; }
+
+/* Lista de casillas (especialidades, procedimientos) */
+.check-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 16px;
+  padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 10px;
+}
+.check-grid .check { margin: 0; }
+
+/* Encabezado de tarjeta con botón a la derecha */
+.card-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 4px; }
+.card-bar h3 { margin: 0; }
+
 .duration-note {
   display: flex; align-items: center; gap: 10px; width: fit-content; max-width: 100%;
   margin: 0 0 18px; padding: 8px 14px; border-radius: 10px;

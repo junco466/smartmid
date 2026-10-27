@@ -117,7 +117,9 @@ function borrarToken() {
    --------------------------------------------------------- */
 const datosVacios = () => ({
   doctores: [], catalogo: {}, citas: [], bloqueos: [], cola: [], registro: [], notifs: [], config: {}, stats: null,
-  diaExtra: null // citas de un día anterior al historial cargado (agenda)
+  diaExtra: null,                    // citas de un día anterior al historial cargado (agenda)
+  equipo: null,                      // vista completa para el administrador (incluye inactivos)
+  nombres: { procs: {}, doctores: {} } // nombres que trae cada cita, por si ya no están activos
 });
 let datos = datosVacios();
 let usuario = null;
@@ -132,9 +134,11 @@ const ui = {
 
 const doctorPor = id => datos.doctores.find(d => d.id === id);
 const procPor = id => datos.catalogo[id];
-const nombreProc = id => procPor(id)?.nombre || 'Procedimiento';
-const nombreDoc = id => doctorPor(id)?.nombre || 'Odontólogo';
-const puedeHacer = (doc, proc) => !!doc && (ESPECIALIDADES[doc.especialidad]?.procs || []).includes(proc);
+const nombreProc = id => procPor(id)?.nombre || datos.equipo?.procedimientos[id]?.nombre || datos.nombres.procs[id] || 'Procedimiento';
+const nombreDoc = id => doctorPor(id)?.nombre || datos.equipo?.doctores.find(d => d.id === id)?.nombre || datos.nombres.doctores[id] || 'Odontólogo';
+const puedeHacer = (doc, proc) => !!doc && doc.especialidades.some(e => (ESPECIALIDADES[e]?.procs || []).includes(proc));
+// "Endodoncia · Cirugía oral" (usa la lista completa si está cargada, para incluir las inactivas).
+const nombresEsp = (ids, todas = datos.equipo?.especialidades || ESPECIALIDADES) => ids.map(e => todas[e]?.nombre).filter(Boolean).join(' · ');
 const esAdmin = () => usuario?.rol === 'admin';
 const doctoresVisibles = () => (esAdmin() || !usuario?.doctorId) ? datos.doctores : datos.doctores.filter(d => d.id === usuario.doctorId);
 const inicioHistorial = () => sumarDias(hoyISO(), -DIAS_HISTORIAL);
@@ -163,7 +167,13 @@ async function cargarPanel() {
     api('/config'),
     api('/estadisticas')
   ]);
-  Object.assign(datos, { citas, bloqueos, cola, registro, notifs, config, stats });
+  const equipo = esAdmin() ? await api('/admin/equipo') : null;
+  const nombres = { procs: {}, doctores: {} };
+  [...citas, ...cola].forEach(x => {
+    nombres.procs[x.proc] = x.procNombre;
+    nombres.doctores[x.doctor] = x.doctorNombre;
+  });
+  Object.assign(datos, { citas, bloqueos, cola, registro, notifs, config, stats, equipo, nombres });
 }
 
 // Vuelve a pedir los datos y redibuja. Se usa después de cada cambio.
@@ -275,6 +285,12 @@ function renderSesion() {
     $('#user-nombre').textContent = usuario.nombre;
     $('#user-avatar').textContent = iniciales(usuario.nombre);
   }
+  $('#link-equipo').hidden = !esAdmin();
+  // Especialidades del formulario de registro (salen de la base de datos).
+  const selEsp = $('#reg-especialidad');
+  const actual = selEsp.value;
+  selEsp.innerHTML = Object.entries(ESPECIALIDADES).map(([id, e]) => `<option value="${esc(id)}">${esc(e.nombre)}</option>`).join('');
+  if (ESPECIALIDADES[actual]) selEsp.value = actual;
   renderNotifs();
 }
 
@@ -320,7 +336,7 @@ function renderPaciente() {
   // Guía: qué especialista según el motivo
   $('#guia-especialistas').innerHTML = MOTIVOS.map(m => {
     const esp = ESPECIALIDADES[m.especialidad] || { nombre: '' };
-    const docs = datos.doctores.filter(d => d.especialidad === m.especialidad);
+    const docs = datos.doctores.filter(d => d.especialidades.includes(m.especialidad));
     const quien = docs.length ? `Te atiende: ${docs.map(d => esc(d.nombre)).join(', ')}` : 'Empieza con una valoración inicial en odontología general.';
     return `<article class="guide-card">
       <p class="guide-motivo">${esc(m.motivo)}</p>
@@ -335,7 +351,7 @@ function renderPaciente() {
   $('#directorio').innerHTML = datos.doctores.map(d => `<article class="doctor">
       <div class="avatar" aria-hidden="true">${esc(iniciales(d.nombre))}</div>
       <h3>${esc(d.nombre)}</h3>
-      <p class="doctor-role">${esc(ESPECIALIDADES[d.especialidad]?.nombre || '')}</p>
+      <p class="doctor-role">${esc(nombresEsp(d.especialidades, ESPECIALIDADES))}</p>
       <p>${esc(d.bio || '')}</p>
       <p class="doctor-meta">${d.experiencia ? `${d.experiencia} años de experiencia · ` : ''}Lun–Sáb</p>
       <a class="btn btn-outline btn-sm" href="#" data-wa="${esc(`Hola, quiero agendar una cita con ${d.nombre}.`)}">Agendar por WhatsApp</a>
@@ -369,7 +385,7 @@ function renderPanel() {
   if (!ui.agDoctor || !docs.some(d => d.id === ui.agDoctor)) ui.agDoctor = usuario.doctorId || docs[0]?.id || null;
 
   $('#panel-saludo').textContent = esAdmin() ? 'Panel de la clínica' : `Hola, ${usuario.nombre.split(' ').slice(0, 2).join(' ')}`;
-  const rol = esAdmin() ? 'Administrador' : (ESPECIALIDADES[doctorPor(usuario.doctorId)?.especialidad]?.nombre || 'Odontólogo');
+  const rol = esAdmin() ? 'Administrador' : (nombresEsp(doctorPor(usuario.doctorId)?.especialidades || []) || 'Odontólogo');
   $('#panel-fecha').textContent = `${fmtLarga(hoyISO())} · ${rol}`;
   llenarSelectDoctores();
   mostrarSeccion(ui.seccion);
@@ -388,13 +404,14 @@ function llenarSelectDoctores() {
 }
 
 function mostrarSeccion(seccion) {
+  if (seccion === 'equipo' && !esAdmin()) seccion = 'resumen';
   ui.seccion = seccion;
   $$('.side-link').forEach(b => {
     if (b.dataset.seccion === seccion) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
   $$('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== seccion; });
-  const render = { resumen: renderResumen, agenda: renderAgenda, nueva: renderNueva, bloqueos: renderBloqueos, cola: renderCola, catalogo: renderCatalogo, ajustes: renderAjustes };
+  const render = { resumen: renderResumen, agenda: renderAgenda, nueva: renderNueva, bloqueos: renderBloqueos, cola: renderCola, catalogo: renderCatalogo, equipo: renderEquipo, ajustes: renderAjustes };
   if (render[seccion]) render[seccion]();
   renderContadores();
 }
@@ -402,7 +419,10 @@ function mostrarSeccion(seccion) {
 function refrescar() {
   renderNotifs();
   renderContadores();
-  if (ui.vista === 'panel') mostrarSeccion(ui.seccion);
+  if (ui.vista === 'panel') {
+    llenarSelectDoctores(); // por si el administrador agregó o desactivó odontólogos
+    mostrarSeccion(ui.seccion);
+  }
   if (ui.vista === 'paciente') renderPaciente();
 }
 
@@ -732,23 +752,31 @@ function renderCola() {
 }
 
 /* --- 8.7 Catálogo --- */
+const badgeActivo = activo => `<span class="badge" data-estado="${activo ? 'asistida' : 'cancelada'}">${activo ? 'Activo' : 'Inactivo'}</span>`;
+
 function renderCatalogo() {
   const editable = esAdmin();
+  // El administrador también ve los procedimientos desactivados.
+  const procs = editable && datos.equipo ? datos.equipo.procedimientos : datos.catalogo;
   $('#cat-aviso').hidden = editable;
   $('#cat-guardar').hidden = !editable;
-  $('#tabla-catalogo tbody').innerHTML = Object.entries(datos.catalogo).map(([id, p]) => `<tr data-proc="${esc(id)}">
+  $('#cat-nuevo').hidden = !editable;
+  $$('#tabla-catalogo .col-admin').forEach(th => { th.hidden = !editable; });
+  $('#tabla-catalogo tbody').innerHTML = Object.entries(procs).map(([id, p]) => `<tr data-proc="${esc(id)}">
       <td>${esc(p.nombre)}</td>
       <td><input type="number" data-campo="duracion" value="${p.duracion}" min="15" max="240" step="15" aria-label="Duración de ${esc(p.nombre)} en minutos"${editable ? '' : ' disabled'}></td>
       <td><input type="number" data-campo="precio" value="${p.precio}" min="0" step="1000" aria-label="Tarifa de ${esc(p.nombre)}"${editable ? '' : ' disabled'}></td>
-      <td>${esc(p.tipo)}</td>
+      <td>${esc(p.tipo || '')}</td>
+      ${editable ? `<td><div class="list-actions">${badgeActivo(p.activo)}<button type="button" class="btn btn-ghost btn-sm" data-equipo-editar="procedimiento|${esc(id)}">Editar</button></div></td>` : ''}
     </tr>`).join('');
 }
 
 async function guardarCatalogo() {
   const nuevos = {};
+  const procs = datos.equipo?.procedimientos || datos.catalogo;
   for (const fila of $$('#tabla-catalogo tbody tr')) {
     const id = fila.dataset.proc;
-    const nombre = datos.catalogo[id].nombre;
+    const nombre = procs[id].nombre;
     const duracion = Number(fila.querySelector('[data-campo="duracion"]').value);
     const precio = Number(fila.querySelector('[data-campo="precio"]').value);
     if (!Number.isInteger(duracion) || duracion < 15 || duracion > 240 || duracion % 15) return toast(`${nombre}: la duración debe ser múltiplo de 15 (entre 15 y 240 min).`, 'error');
@@ -759,7 +787,183 @@ async function guardarCatalogo() {
   if (r) toast('Catálogo guardado. Tarifas publicadas para pacientes.', 'ok');
 }
 
-/* --- 8.8 Automatizaciones --- */
+/* --- 8.8 Equipo y servicios (solo administrador) --- */
+function renderEquipo() {
+  const eq = datos.equipo;
+  if (!eq) return;
+  const editar = (tipo, id) => `<button type="button" class="btn btn-ghost btn-sm" data-equipo-editar="${tipo}|${esc(id)}">Editar</button>`;
+
+  $('#lista-equipo-doctores').innerHTML = eq.doctores.length ? eq.doctores.map(d => `<li>
+      <div class="list-main">
+        <p class="list-title">${esc(d.nombre)}</p>
+        <p class="list-meta">${esc(nombresEsp(d.especialidades) || 'Sin especialidad')} · ${esc(d.correo || 'Sin cuenta de acceso')}</p>
+      </div>
+      <div class="list-actions">${badgeActivo(d.activo)}${editar('doctor', d.id)}</div>
+    </li>`).join('') : vacio('No hay odontólogos registrados.');
+
+  const especialidades = Object.entries(eq.especialidades);
+  $('#lista-equipo-especialidades').innerHTML = especialidades.length ? especialidades.map(([id, e]) => {
+    const docs = eq.doctores.filter(d => d.activo && d.especialidades.includes(id)).length;
+    return `<li>
+      <div class="list-main">
+        <p class="list-title">${esc(e.nombre)}</p>
+        <p class="list-meta">${esc(e.procs.map(nombreProc).join(', ') || 'Sin procedimientos')} · ${plural(docs, 'odontólogo', 'odontólogos')}</p>
+      </div>
+      <div class="list-actions">${badgeActivo(e.activo)}${editar('especialidad', id)}</div>
+    </li>`;
+  }).join('') : vacio('No hay especialidades.');
+
+  $('#lista-equipo-motivos').innerHTML = eq.motivos.length ? eq.motivos.map(m => `<li>
+      <div class="list-main">
+        <p class="list-title">${esc(m.motivo)}</p>
+        <p class="list-meta">→ ${esc(eq.especialidades[m.especialidad]?.nombre || m.especialidad)}${m.detalle ? ` · ${esc(m.detalle)}` : ''}</p>
+      </div>
+      <div class="list-actions">${badgeActivo(m.activo)}${editar('motivo', m.id)}</div>
+    </li>`).join('') : vacio('No hay motivos de consulta.');
+}
+
+// Piezas de formulario para los modales de administración.
+const casillas = (nombre, opciones, marcadas) => `<div class="check-grid">${opciones.map(([id, etiqueta]) =>
+  `<label class="check"><input type="checkbox" name="${nombre}" value="${esc(id)}"${marcadas.includes(id) ? ' checked' : ''}> ${esc(etiqueta)}</label>`).join('')}</div>`;
+const marcadas = nombre => $$(`#modal-cuerpo input[name="${nombre}"]:checked`).map(i => i.value);
+const casillaActivo = (activo, texto) => `<label class="check"><input type="checkbox" id="eq-activo"${activo ? ' checked' : ''}> ${esc(texto)}</label>`;
+const errorModal = '<p class="form-error" id="eq-error" role="alert" hidden></p>';
+const etiquetaInactiva = (nombre, activo) => (activo ? nombre : `${nombre} (inactivo)`);
+
+// Envía el formulario del modal; si el servidor lo rechaza, el error se muestra dentro del modal.
+async function guardarEquipo(ruta, metodo, cuerpo, mensaje) {
+  try {
+    await api(ruta, { metodo, cuerpo });
+  } catch (e) {
+    mostrarError($('#eq-error'), e.message);
+    return;
+  }
+  cerrarModal();
+  await recargar();
+  toast(mensaje, 'ok');
+}
+
+function abrirEditorEquipo(tipo, id) {
+  const eq = datos.equipo;
+  if (!eq) return;
+  if (tipo === 'doctor') abrirDoctor(id ? eq.doctores.find(d => d.id === id) : null);
+  if (tipo === 'especialidad') abrirEspecialidad(id);
+  if (tipo === 'procedimiento') abrirProcedimiento(id);
+  if (tipo === 'motivo') abrirMotivo(id ? eq.motivos.find(m => String(m.id) === String(id)) : null);
+}
+
+function abrirDoctor(d) {
+  const eq = datos.equipo;
+  const opciones = Object.entries(eq.especialidades).map(([id, e]) => [id, etiquetaInactiva(e.nombre, e.activo)]);
+  abrirModal({
+    titulo: d ? `Editar · ${d.nombre}` : 'Agregar odontólogo',
+    cuerpo: `<div class="field"><label for="eq-nombre">Nombre completo</label><input type="text" id="eq-nombre" value="${esc(d?.nombre || '')}" placeholder="Ej.: Dr. Juan Ortiz"></div>
+      <fieldset class="field"><legend>Especialidades</legend>${casillas('esp', opciones, d?.especialidades || [])}</fieldset>
+      <div class="field-row">
+        <div class="field"><label for="eq-experiencia">Años de experiencia</label><input type="number" id="eq-experiencia" min="0" max="70" value="${d?.experiencia ?? ''}"></div>
+      </div>
+      <div class="field"><label for="eq-bio">Descripción para pacientes</label><textarea id="eq-bio" placeholder="Ej.: Tratamiento de encías y tejidos de soporte.">${esc(d?.bio || '')}</textarea></div>
+      <p class="mini-title">Acceso al panel</p>
+      <div class="field-row">
+        <div class="field"><label for="eq-correo">Correo</label><input type="email" id="eq-correo" autocomplete="off" value="${esc(d?.correo || '')}" placeholder="nombre@clinica.co"></div>
+        <div class="field"><label for="eq-clave">${d?.correo ? 'Nueva contraseña' : 'Contraseña'}</label><input type="password" id="eq-clave" autocomplete="new-password"></div>
+      </div>
+      <p class="field-hint">${d?.correo ? 'Deja la contraseña vacía para no cambiarla.' : 'Opcional. Sin correo, el odontólogo aparece en la agenda pero no puede entrar al panel. Mínimo 8 caracteres.'}</p>
+      ${d ? casillaActivo(d.activo, 'Activo (aparece en la página, la agenda y el chatbot)') : ''}
+      ${errorModal}`,
+    acciones: [
+      { texto: 'Cancelar', accion: cerrarModal },
+      { texto: d ? 'Guardar cambios' : 'Agregar', clase: 'btn-primary', accion: () => guardarEquipo(
+        d ? `/admin/doctores/${encodeURIComponent(d.id)}` : '/admin/doctores', d ? 'PUT' : 'POST',
+        {
+          nombre: $('#eq-nombre').value, especialidades: marcadas('esp'), experiencia: $('#eq-experiencia').value,
+          bio: $('#eq-bio').value, correo: $('#eq-correo').value, clave: $('#eq-clave').value,
+          activo: d ? $('#eq-activo').checked : true
+        },
+        d ? 'Odontólogo actualizado' : 'Odontólogo agregado')
+      }
+    ]
+  });
+}
+
+function abrirEspecialidad(id) {
+  const eq = datos.equipo;
+  const e = id ? eq.especialidades[id] : null;
+  const opciones = Object.entries(eq.procedimientos).map(([pid, p]) => [pid, etiquetaInactiva(`${p.nombre} · ${p.duracion} min`, p.activo)]);
+  abrirModal({
+    titulo: e ? `Editar · ${e.nombre}` : 'Nueva especialidad',
+    cuerpo: `<div class="field"><label for="eq-nombre">Nombre</label><input type="text" id="eq-nombre" value="${esc(e?.nombre || '')}" placeholder="Ej.: Implantología"></div>
+      <fieldset class="field"><legend>Procedimientos que incluye</legend>${casillas('proc', opciones, e?.procs || [])}</fieldset>
+      <p class="field-hint">¿Falta un procedimiento? Créalo primero en "Procedimientos".</p>
+      ${e ? casillaActivo(e.activo, 'Activa') : ''}
+      ${errorModal}`,
+    acciones: [
+      { texto: 'Cancelar', accion: cerrarModal },
+      { texto: e ? 'Guardar cambios' : 'Crear', clase: 'btn-primary', accion: () => guardarEquipo(
+        e ? `/admin/especialidades/${encodeURIComponent(id)}` : '/admin/especialidades', e ? 'PUT' : 'POST',
+        { nombre: $('#eq-nombre').value, procs: marcadas('proc'), activo: e ? $('#eq-activo').checked : true },
+        e ? 'Especialidad actualizada' : 'Especialidad creada')
+      }
+    ]
+  });
+}
+
+function abrirProcedimiento(id) {
+  const eq = datos.equipo;
+  const p = id ? eq.procedimientos[id] : null;
+  const opciones = Object.entries(eq.especialidades).map(([eid, e]) => [eid, etiquetaInactiva(e.nombre, e.activo)]);
+  const incluida = Object.entries(eq.especialidades).filter(([, e]) => id && e.procs.includes(id)).map(([eid]) => eid);
+  abrirModal({
+    titulo: p ? `Editar · ${p.nombre}` : 'Nuevo procedimiento',
+    cuerpo: `<div class="field"><label for="eq-nombre">Nombre</label><input type="text" id="eq-nombre" value="${esc(p?.nombre || '')}" placeholder="Ej.: Implante dental"></div>
+      <div class="field-row">
+        <div class="field"><label for="eq-duracion">Duración (min)</label><input type="number" id="eq-duracion" min="15" max="240" step="15" value="${p?.duracion ?? 30}"></div>
+        <div class="field"><label for="eq-precio">Tarifa (COP)</label><input type="number" id="eq-precio" min="0" step="1000" value="${p?.precio ?? ''}"></div>
+        <div class="field"><label for="eq-tipo">Tipo</label><input type="text" id="eq-tipo" value="${esc(p?.tipo || '')}" placeholder="Ej.: Cirugía"></div>
+      </div>
+      <fieldset class="field"><legend>Especialidades que lo realizan</legend>${casillas('esp', opciones, incluida)}</fieldset>
+      ${p ? casillaActivo(p.activo, 'Activo (se ofrece a pacientes y en la agenda)') : ''}
+      ${p ? '<p class="field-hint">Las citas ya agendadas conservan su duración original.</p>' : ''}
+      ${errorModal}`,
+    acciones: [
+      { texto: 'Cancelar', accion: cerrarModal },
+      { texto: p ? 'Guardar cambios' : 'Crear', clase: 'btn-primary', accion: () => guardarEquipo(
+        p ? `/admin/procedimientos/${encodeURIComponent(id)}` : '/admin/procedimientos', p ? 'PUT' : 'POST',
+        {
+          nombre: $('#eq-nombre').value, duracion: Number($('#eq-duracion').value), precio: Number($('#eq-precio').value),
+          tipo: $('#eq-tipo').value, especialidades: marcadas('esp'), activo: p ? $('#eq-activo').checked : true
+        },
+        p ? 'Procedimiento actualizado' : 'Procedimiento creado')
+      }
+    ]
+  });
+}
+
+function abrirMotivo(m) {
+  const eq = datos.equipo;
+  const opciones = Object.entries(eq.especialidades)
+    .map(([id, e]) => `<option value="${esc(id)}"${m?.especialidad === id ? ' selected' : ''}>${esc(etiquetaInactiva(e.nombre, e.activo))}</option>`).join('');
+  const acciones = [{ texto: 'Cancelar', accion: cerrarModal }];
+  if (m) {
+    acciones.unshift({ texto: 'Eliminar', clase: 'btn-ghost', accion: () => guardarEquipo(`/admin/motivos/${m.id}`, 'DELETE', undefined, 'Motivo eliminado') });
+  }
+  acciones.push({ texto: m ? 'Guardar cambios' : 'Crear', clase: 'btn-primary', accion: () => guardarEquipo(
+    m ? `/admin/motivos/${m.id}` : '/admin/motivos', m ? 'PUT' : 'POST',
+    { motivo: $('#eq-motivo').value, especialidad: $('#eq-especialidad').value, detalle: $('#eq-detalle').value, activo: m ? $('#eq-activo').checked : true },
+    m ? 'Motivo actualizado' : 'Motivo creado')
+  });
+  abrirModal({
+    titulo: m ? 'Editar motivo de consulta' : 'Nuevo motivo de consulta',
+    cuerpo: `<div class="field"><label for="eq-motivo">Motivo (como lo diría el paciente)</label><input type="text" id="eq-motivo" value="${esc(m?.motivo || '')}" placeholder="Ej.: Me falta un diente"></div>
+      <div class="field"><label for="eq-especialidad">Especialidad recomendada</label><select id="eq-especialidad">${opciones}</select></div>
+      <div class="field"><label for="eq-detalle">Explicación breve</label><textarea id="eq-detalle" placeholder="Ej.: Valoramos si es posible un implante.">${esc(m?.detalle || '')}</textarea></div>
+      ${m ? casillaActivo(m.activo, 'Activo') : ''}
+      ${errorModal}`,
+    acciones
+  });
+}
+
+/* --- 8.9 Automatizaciones --- */
 function renderAjustes() {
   $$('[data-config]').forEach(input => {
     input.checked = !!datos.config[input.dataset.config];
@@ -1006,6 +1210,12 @@ document.addEventListener('click', e => {
   const hora = t.closest('#cita-horarios [data-hora]');
   if (hora) { ui.nueva.inicio = Number(hora.dataset.hora); actualizarNueva(true); return; }
 
+  const nuevoEq = t.closest('[data-equipo-nuevo]');
+  if (nuevoEq) { abrirEditorEquipo(nuevoEq.dataset.equipoNuevo, null); return; }
+
+  const editarEq = t.closest('[data-equipo-editar]');
+  if (editarEq) { const [tipo, id] = editarEq.dataset.equipoEditar.split('|'); abrirEditorEquipo(tipo, id); return; }
+
   const filtro = t.closest('[data-filtro]');
   if (filtro) { ui.filtroNotif = filtro.dataset.filtro; renderNotifs(); return; }
 
@@ -1209,6 +1419,7 @@ $('#cola-auto').addEventListener('click', async () => {
 
 // Catálogo y ajustes
 $('#cat-guardar').addEventListener('click', guardarCatalogo);
+$('#cat-nuevo').addEventListener('click', () => abrirProcedimiento(null));
 $$('[data-config]').forEach(input => input.addEventListener('change', async () => {
   const r = await ejecutar(() => api('/config', { metodo: 'PUT', cuerpo: { [input.dataset.config]: input.checked } }));
   if (r) toast('Preferencia guardada', 'ok');

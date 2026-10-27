@@ -10,6 +10,9 @@ const HORARIO = {
   diasLaborables: [1, 2, 3, 4, 5, 6] // lunes a sábado (0 = domingo)
 };
 
+// Las especialidades, los motivos, el catálogo y los odontólogos de este archivo solo se usan
+// para llenar una base de datos nueva. Después se administran desde el panel ("Equipo y servicios").
+
 // Qué procedimientos puede hacer cada especialidad.
 const ESPECIALIDADES = {
   general:     { nombre: 'Odontología general y estética', procs: ['val', 'lim', 'rx', 'res', 'ext', 'ble'] },
@@ -29,7 +32,6 @@ const MOTIVOS = [
   { motivo: 'Muela del juicio o extracción', especialidad: 'cirugia', detalle: 'Extracciones simples y valoración quirúrgica.' }
 ];
 
-// Datos iniciales: se cargan solo si la base de datos está vacía.
 const CATALOGO_BASE = {
   val: { nombre: 'Valoración inicial',     duracion: 30, precio: 40000,  tipo: 'Diagnóstico' },
   lim: { nombre: 'Limpieza dental',        duracion: 45, precio: 90000,  tipo: 'Preventivo' },

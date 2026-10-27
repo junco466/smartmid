@@ -2,8 +2,8 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
+const equipo = require('./equipo');
 const { cifrarClave, verificarClave } = require('./claves');
-const { ESPECIALIDADES } = require('./config');
 
 let SECRETO = process.env.JWT_SECRET;
 if (!SECRETO) {
@@ -12,39 +12,39 @@ if (!SECRETO) {
 }
 const DURACION_SESION = process.env.JWT_DURACION || '12h';
 
-const COLS_USUARIO = 'id, nombre, correo, rol, doctor_id AS doctorId';
-const usuarioPor = id => db.prepare(`SELECT ${COLS_USUARIO} FROM usuarios WHERE id = ?`).get(id);
+// Las cuentas de odontólogos desactivados no pueden iniciar sesión.
+const COLS_USUARIO = 'u.id, u.nombre, u.correo, u.rol, u.doctor_id AS doctorId';
+const ACTIVO = 'LEFT JOIN doctores d ON d.id = u.doctor_id WHERE (u.doctor_id IS NULL OR d.activo = 1)';
+const usuarioPor = id => db.prepare(`SELECT ${COLS_USUARIO} FROM usuarios u ${ACTIVO} AND u.id = ?`).get(id);
 
 const emitirToken = u => jwt.sign({ sub: String(u.id), rol: u.rol }, SECRETO, { expiresIn: DURACION_SESION });
 
 function login(correo, clave) {
-  const fila = db.prepare('SELECT id, clave_hash FROM usuarios WHERE correo = ?').get(String(correo || '').trim().toLowerCase());
+  const fila = db.prepare(`SELECT u.id, u.clave_hash FROM usuarios u ${ACTIVO} AND u.correo = ?`).get(String(correo || '').trim().toLowerCase());
   if (!fila || !verificarClave(clave, fila.clave_hash)) return null;
   const usuario = usuarioPor(fila.id);
   return { token: emitirToken(usuario), usuario };
 }
 
 // Crea la cuenta y, si es odontólogo, también su perfil en la agenda.
-const registrar = db.transaction(({ nombre, correo, clave, rol, especialidad }) => {
+function registrar({ nombre, correo, clave, rol, especialidad }) {
   nombre = String(nombre || '').trim();
   correo = String(correo || '').trim().toLowerCase();
   if (nombre.length < 5) return { error: 'Escribe el nombre completo.' };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { error: 'El correo no es válido.' };
   if (String(clave || '').length < 8) return { error: 'La contraseña debe tener al menos 8 caracteres.' };
   if (!['admin', 'odontologo'].includes(rol)) return { error: 'Rol no válido.' };
-  if (rol === 'odontologo' && !ESPECIALIDADES[especialidad]) return { error: 'Especialidad no válida.' };
   if (db.prepare('SELECT 1 FROM usuarios WHERE correo = ?').get(correo)) return { error: 'Ya existe una cuenta con ese correo.' };
 
-  let doctorId = null;
   if (rol === 'odontologo') {
-    doctorId = 'd' + Date.now().toString(36);
-    db.prepare('INSERT INTO doctores (id, nombre, especialidad, bio) VALUES (?, ?, ?, ?)')
-      .run(doctorId, nombre, especialidad, 'Nuevo integrante del equipo de la clínica.');
+    const r = equipo.guardarDoctor(null, { nombre, especialidades: [especialidad], correo, clave, bio: 'Nuevo integrante del equipo de la clínica.' });
+    if (r.error) return r;
+  } else {
+    db.prepare(`INSERT INTO usuarios (nombre, correo, clave_hash, rol) VALUES (?, ?, ?, 'admin')`).run(nombre, correo, cifrarClave(clave));
   }
-  const r = db.prepare('INSERT INTO usuarios (nombre, correo, clave_hash, rol, doctor_id) VALUES (?, ?, ?, ?, ?)')
-    .run(nombre, correo, cifrarClave(clave), rol, doctorId);
-  return { usuario: usuarioPor(r.lastInsertRowid) };
-});
+  const { id } = db.prepare('SELECT id FROM usuarios WHERE correo = ?').get(correo);
+  return { usuario: usuarioPor(id) };
+}
 
 function leerUsuario(req) {
   const [tipo, token] = String(req.headers.authorization || '').split(' ');
