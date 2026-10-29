@@ -32,7 +32,7 @@ npm run demo -- --forzar                              # borra citas, cola, bloqu
 | `scripts/demo.js` | Datos de ejemplo (`npm run demo`) |
 | `src/auth.js` | Login con JWT y alcance por rol |
 | `src/rutas.js` | Endpoints REST `/api/*` |
-| `src/bot.js` | Conversación del chatbot |
+| `src/bot.js` | Conversación del chatbot (pasos, sesiones guardadas en la base, pacientes recordados) |
 
 Fechas `AAAA-MM-DD`; horas en minutos desde la medianoche (`840` = 14:00). Los endpoints que reciben `inicio`, `desde` o `hasta` aceptan también `"14:00"`. Los teléfonos se guardan como `57XXXXXXXXXX`.
 
@@ -83,6 +83,7 @@ Solo administrador (equipo y servicios). PUT reemplaza todos los campos del regi
 | POST / PUT | `/api/admin/especialidades[/:id]` | `{nombre, procs: [...], activo?}` |
 | POST / PUT | `/api/admin/procedimientos[/:id]` | `{nombre, duracion, precio, tipo?, especialidades?: [...], activo?}` |
 | POST / PUT / DELETE | `/api/admin/motivos[/:id]` | `{motivo, especialidad, detalle?, activo?}` |
+| POST | `/api/admin/bot/simular` | `{telefono?, texto}` → `{respuesta}`. Habla con el bot sin enviar WhatsApp |
 
 Un odontólogo con citas programadas no se puede desactivar. Los inactivos no aparecen en la página ni en el chatbot, y su cuenta no puede iniciar sesión.
 

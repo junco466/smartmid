@@ -2,7 +2,7 @@
 
 Paso a paso para revisar todo antes de modificar el chatbot. Cada paso dice qué hacer y qué debe pasar. Marca la casilla si salió bien; si algo no cuadra, anota el número del paso, lo que viste y el mensaje de la terminal.
 
-Tiempo estimado: 45 a 60 minutos.
+Tiempo estimado: 1 a 1,5 horas. Haz los pasos en orden: algunos usan lo que creaste en pasos anteriores.
 
 ---
 
@@ -153,25 +153,99 @@ Usaremos una **base de pruebas aparte** (`smartmind-pruebas.db`), así tu base r
 
 ## 15. Chatbot
 
-Hay dos formas. La **A** no necesita celular; la **B** es la prueba real.
+Hay dos formas de probarlo:
 
-> ⚠️ El servidor **envía de verdad** las respuestas por WhatsApp con tu `WHAPI_TOKEN`. En la opción A usa **tu propio número** (con 57 adelante), nunca uno inventado: podría ser de otra persona.
+- **Simulador del panel** (para casi todos los pasos): entra como administrador → **Automatizaciones** → **Probar el chatbot**. Escribes como si fueras el paciente y ves las respuestas. **No envía nada por WhatsApp**, pero las citas que agendes o canceles sí quedan en la agenda.
+- **WhatsApp real** (paso 15.10): desde tu celular, con ngrok apuntando al puerto del servidor.
 
-**A. Simulando los mensajes (otra ventana de PowerShell, con el servidor encendido):**
+El simulador usa el celular `570000000000`. Para simular a otro paciente, cambia ese número.
 
-```powershell
-$numero = "57TU_NUMERO"; $fecha = "2026-11-03"; foreach ($t in "hola", "1", "Paciente WhatsApp", $fecha, "1") { $cuerpo = @{ messages = @(@{ id = [guid]::NewGuid().ToString(); from_me = $false; type = "text"; chat_id = "$numero@s.whatsapp.net"; text = @{ body = $t } }) } | ConvertTo-Json -Depth 5; Invoke-RestMethod -Method Post -Uri "http://localhost:3000/webhook/whapi" -ContentType "application/json" -Body $cuerpo; Start-Sleep -Milliseconds 700 }
-```
+### 15.1 Menú e información
 
-Cambia `$fecha` por un día de lunes a sábado que no haya pasado.
+- [ ] **a.** `hola` → saludo y menú con 5 opciones.
+- [ ] **b.** `xyz` → *No entendí tu respuesta* y vuelve a mostrar el menú.
+- [ ] **c.** `4` → tarifas de todos los procedimientos activos (incluye *Implante dental* si lo creaste en el paso 10).
+- [ ] **d.** `5` → equipo con especialidades, experiencia y descripción.
+- [ ] **e.** `2` → *No tienes citas programadas.*
+- [ ] **f.** `MENÚ`, `Menu` y `0` → todos vuelven al menú.
 
-**B. Desde tu celular** (ngrok encendido y apuntando al mismo puerto): escribe `hola` → `1` → tu nombre → una fecha `AAAA-MM-DD` → el número de un horario.
+### 15.2 Agendar por motivo de consulta
 
-- [ ] **15.1** La terminal del servidor muestra `Mensaje de 57…` por cada mensaje.
-- [ ] **15.2** Con el panel abierto como administrador, en **30 segundos o menos** aparece el aviso *Nueva cita desde WhatsApp…* y la campana suma una notificación.
-- [ ] **15.3** La cita aparece en la agenda de la Dra. Camila como *vía WhatsApp*.
-- [ ] **15.4** Por WhatsApp: `menu` → `2` → número de la cita → se cancela, y el paciente aparece en **Re-agendamiento**.
-- [ ] **15.5** (Opción B) Las respuestas llegan a tu celular.
+`menu` → `1`
+
+- [ ] **a.** Lista los motivos de "Equipo y servicios" y al final *Otro motivo / quiero elegir la especialidad*.
+- [ ] **b.** `1` (dolor fuerte) → *Para eso te recomiendo Endodoncia* y lista sus procedimientos con duración y precio. La valoración sale primero, marcada como *recomendada si es tu primera visita*.
+- [ ] **c.** `1` → *Te atenderá Dr. Andrés Villegas* (es el único endodoncista), 6 horarios, *Ver más horarios* y *Prefiero otra fecha*.
+- [ ] **d.** `ver mas` → horarios siguientes, distintos a los anteriores.
+- [ ] **e.** `1` → pide el nombre completo. Escribe `12` → lo vuelve a pedir.
+- [ ] **f.** `lucía fernández` → resumen con *Lucía Fernández* (con mayúsculas), *30 min*, precio, odontólogo y fecha completa.
+- [ ] **g.** `quizás` → *No entendí*. Luego `sí` → *✅ ¡Listo! Tu cita quedó agendada.*
+- [ ] **h.** Cierra el simulador: la cita está en la agenda del Dr. Villegas como *vía WhatsApp*, la campana tiene *Nueva cita desde WhatsApp* y el Resumen la muestra en "Mensajes automáticos enviados".
+
+### 15.3 Elegir especialidad, odontólogo y fecha
+
+- [ ] **a.** `menu` → `1` → `7` (otro motivo) → solo aparecen especialidades que tienen un odontólogo activo.
+- [ ] **b.** Escribe `ortodoncia` (el nombre en vez del número) → también funciona.
+- [ ] **c.** Elige *Control de ortodoncia* → horarios con la Dra. Sofía Arango.
+- [ ] **d.** `otra fecha` → `domingo` → *la clínica no atiende*. `ayer` → *No entendí*.
+- [ ] **e.** Escribe `viernes` o una fecha como `15/11` → horarios libres de ese día.
+- [ ] **f.** Elige uno → como el bot ya conoce tu nombre, pasa directo a la confirmación.
+- [ ] **g.** `nombre` → escribe otro nombre (por ejemplo, para agendarle a un hijo) → la confirmación muestra el nuevo nombre.
+- [ ] **h.** `no` → vuelve a los horarios. Elige otro → `si` → agendada.
+
+### 15.4 Lo creado en "Equipo y servicios" llega al bot
+
+Requiere los pasos 11 y 13.4 (Dr. Juan Ortiz activo, especialidad Implantología y motivo *Me falta un diente*).
+
+- [ ] **a.** `menu` → `1` → aparece *Me falta un diente* → elígelo → recomienda *Implantología* → lista *Implante dental · 90 min*.
+- [ ] **b.** Elige el implante → *Te atenderá Dr. Juan Ortiz*. El último horario de cada día es a las 15:30 (90 min antes del cierre).
+- [ ] **c.** `menu` → `1` → *Encías inflamadas o que sangran* → recomienda *Periodoncia* → elige un procedimiento → *Te atenderá Dr. Juan Ortiz*.
+- [ ] **d.** En el panel, desactiva *Implante dental* (Procedimientos → Editar). En el bot ya no aparece ni en tarifas ni en Implantología. Vuelve a activarlo.
+
+### 15.5 El bot recuerda al paciente
+
+- [ ] **a.** `hola` → *¡Hola, Lucía!* (o el último nombre con que agendaste).
+- [ ] **b.** `2` → lista tus citas programadas con fecha, procedimiento y odontólogo.
+- [ ] **c.** Cambia el celular del simulador a `570000000001` y escribe `hola` → saludo general (no conoce a ese paciente).
+
+### 15.6 Cambiar una cita
+
+Vuelve al celular `570000000000`.
+
+- [ ] **a.** `menu` → `3` → si tienes una sola cita, ofrece *Cambiar de horario* o *Cancelarla*; si tienes varias, pregunta cuál.
+- [ ] **b.** Cambiar → *Busquemos un nuevo horario con la misma duración* → horarios del **mismo** odontólogo.
+- [ ] **c.** Elige uno → *Confirma el nuevo horario* (no vuelve a pedir el nombre) → `dale` → *Tu cita quedó reprogramada*.
+- [ ] **d.** En el panel: la cita anterior está *Cancelada*, la nueva aparece como *re-agendada* con la misma duración, la campana dice *Cita cambiada por WhatsApp* y la cola de re-agendamiento no tiene a este paciente.
+
+### 15.7 Cancelar una cita
+
+- [ ] **a.** `menu` → `3` → (elige la cita) → `2` → *¿Seguro…?* → `no` → *tu cita sigue en pie*.
+- [ ] **b.** Repite y responde `si` → *Tu cita fue cancelada* y pregunta si quieres un nuevo horario con la misma duración.
+- [ ] **c.** `si` → horarios → elige uno → `si` → reprogramada. En el panel el paciente **no** queda en la cola.
+- [ ] **d.** Agenda otra cita, cancélala y esta vez responde `no` al nuevo horario → *La clínica podrá contactarte*. En el panel el paciente aparece en **Re-agendamiento**.
+
+### 15.8 Dos personas quieren el mismo horario
+
+- [ ] **a.** En el simulador avanza hasta la pantalla *Confirma tu cita*, pero **no respondas todavía**. Anota la fecha, la hora y el odontólogo.
+- [ ] **b.** Cierra el simulador y, desde **Nueva cita**, agenda a otro paciente en ese mismo horario con ese odontólogo.
+- [ ] **c.** Abre otra vez el simulador y responde `si` → *Ese horario ya no está disponible* y muestra horarios nuevos. No se crea ninguna cita cruzada.
+
+### 15.9 La conversación sobrevive a un reinicio
+
+- [ ] **a.** En el simulador, avanza hasta la lista de horarios.
+- [ ] **b.** En la terminal del servidor presiona Ctrl+C y vuelve a ejecutar `npm run dev` (en la misma ventana, para que siga usando la base de pruebas).
+- [ ] **c.** Responde `1` → el bot sigue donde ibas, no vuelve al menú.
+
+Las conversaciones vuelven a empezar solas después de 2 horas sin mensajes.
+
+### 15.10 WhatsApp real
+
+> ⚠️ El servidor **envía de verdad** las respuestas con tu `WHAPI_TOKEN`. Prueba solo desde tu propio celular.
+
+- [ ] **a.** Con ngrok encendido, escribe `hola` al número del bot → te llega el menú, y la terminal del servidor muestra `Mensaje de 57…`.
+- [ ] **b.** Agenda una cita completa → los mensajes con *negritas* y emojis se ven bien en WhatsApp.
+- [ ] **c.** Con el panel abierto, la cita aparece en **30 segundos o menos** con el aviso *Nueva cita desde WhatsApp*.
+- [ ] **d.** Envía una nota de voz o una foto → el bot no responde (por ahora solo entiende texto).
 
 ## 16. Errores del servidor y del navegador
 

@@ -3,8 +3,9 @@ const express = require('express');
 const agenda = require('./agenda');
 const auth = require('./auth');
 const equipo = require('./equipo');
+const { procesarMensaje } = require('./bot');
 const { HORARIO } = require('./config');
-const { hoyISO, hhmm, aMin, fmtCorta } = require('./utils');
+const { hoyISO, hhmm, aMin, fmtCorta, normalizarTelefono } = require('./utils');
 
 const router = express.Router();
 const { requiereSesion, requiereAdmin, alcance, puedeVer } = auth;
@@ -264,6 +265,18 @@ router.put('/admin/motivos/:id', requiereAdmin, guardar((id, b) => equipo.guarda
 router.delete('/admin/motivos/:id', requiereAdmin, (req, res) => {
   if (!equipo.eliminarMotivo(idNum(req.params.id))) return fallo(res, 'El motivo no existe.', 404);
   res.status(204).end();
+});
+
+
+/* ---------- Simulador del chatbot (solo administrador) ---------- */
+// Responde como el bot sin enviar nada por WhatsApp. Las citas que se agenden sí se guardan.
+// Cuerpo: { telefono?, texto }
+router.post('/admin/bot/simular', requiereAdmin, (req, res) => {
+  const telefono = normalizarTelefono(req.body?.telefono || '570000000000');
+  const texto = String(req.body?.texto || '').slice(0, 500);
+  if (telefono.length < 10) return fallo(res, 'Escribe un número de teléfono válido.');
+  if (!texto.trim()) return fallo(res, 'Escribe un mensaje.');
+  res.json({ telefono, respuesta: procesarMensaje(telefono, texto) });
 });
 
 

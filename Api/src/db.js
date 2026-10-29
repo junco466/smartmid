@@ -152,6 +152,20 @@ db.exec(`
     clave TEXT PRIMARY KEY,
     valor TEXT NOT NULL
   );
+
+  -- En qué paso de la conversación va cada paciente del chatbot (sobrevive a reinicios).
+  CREATE TABLE IF NOT EXISTS sesiones_bot (
+    telefono TEXT PRIMARY KEY,
+    estado TEXT NOT NULL,
+    actualizado INTEGER NOT NULL
+  );
+
+  -- Pacientes que han escrito por WhatsApp: el bot los saluda por su nombre.
+  CREATE TABLE IF NOT EXISTS pacientes (
+    telefono TEXT PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    actualizado INTEGER NOT NULL
+  );
 `);
 
 const columnas = tabla => db.prepare(`SELECT name FROM pragma_table_info('${tabla}')`).all().map(c => c.name);

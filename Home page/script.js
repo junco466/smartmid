@@ -971,6 +971,60 @@ function renderAjustes() {
   });
   $('#ajustes-aviso').hidden = esAdmin();
   $('#ajustes-whatsapp').textContent = `+${WHATSAPP_NUMERO}`;
+  $('#sim-abrir-campo').hidden = !esAdmin();
+}
+
+/* --- 8.10 Simulador del chatbot (solo administrador) --- */
+const simulador = { telefono: '570000000000', mensajes: [] };
+
+// Formato de WhatsApp: *negrita* y _cursiva_.
+const formatoWhatsApp = txt => esc(txt).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>').replace(/(^|[\s(])_([^_\n]+)_/g, '$1<em>$2</em>');
+
+function pintarSimulador() {
+  const chat = $('#sim-chat');
+  if (!chat) return;
+  chat.innerHTML = simulador.mensajes.length
+    ? simulador.mensajes.map(m => `<p class="sim-msg ${m.mio ? 'sim-out' : 'sim-in'}">${m.mio ? esc(m.texto) : formatoWhatsApp(m.texto)}</p>`).join('')
+    : '<p class="sim-vacio">Escribe <strong>hola</strong> para empezar.</p>';
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function abrirSimulador() {
+  abrirModal({
+    titulo: 'Probar el chatbot',
+    cuerpo: `<p class="card-sub">Escribe como si fueras un paciente. No se envía nada por WhatsApp, pero las citas que agendes o canceles aquí sí quedan en la agenda.</p>
+      <div class="field"><label for="sim-tel">Celular del paciente simulado</label><input type="tel" id="sim-tel" value="${esc(simulador.telefono)}"></div>
+      <div class="sim-chat" id="sim-chat" aria-live="polite"></div>
+      <form class="sim-form" id="sim-form">
+        <input type="text" id="sim-texto" autocomplete="off" placeholder="Escribe un mensaje…" aria-label="Mensaje">
+        <button type="submit" class="btn btn-primary">Enviar</button>
+      </form>`,
+    acciones: [
+      { texto: 'Borrar conversación', accion: () => { simulador.mensajes = []; pintarSimulador(); } },
+      { texto: 'Cerrar', accion: () => { cerrarModal(); recargar(); } }
+    ]
+  });
+  pintarSimulador();
+  $('#sim-texto').focus();
+  $('#sim-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const input = $('#sim-texto'), texto = input.value.trim();
+    if (!texto) return;
+    const telefono = $('#sim-tel').value.trim();
+    // Si cambia el número, es otro paciente: se empieza una conversación nueva.
+    if (telefono !== simulador.telefono) { simulador.telefono = telefono; simulador.mensajes = []; }
+    simulador.mensajes.push({ mio: true, texto });
+    input.value = '';
+    pintarSimulador();
+    try {
+      const r = await api('/admin/bot/simular', { metodo: 'POST', cuerpo: { telefono, texto } });
+      simulador.mensajes.push({ mio: false, texto: r.respuesta });
+    } catch (err) {
+      simulador.mensajes.push({ mio: false, texto: `⚠️ ${err.message}` });
+    }
+    pintarSimulador();
+    input.focus();
+  });
 }
 
 
@@ -1420,6 +1474,7 @@ $('#cola-auto').addEventListener('click', async () => {
 // Catálogo y ajustes
 $('#cat-guardar').addEventListener('click', guardarCatalogo);
 $('#cat-nuevo').addEventListener('click', () => abrirProcedimiento(null));
+$('#sim-abrir').addEventListener('click', abrirSimulador);
 $$('[data-config]').forEach(input => input.addEventListener('change', async () => {
   const r = await ejecutar(() => api('/config', { metodo: 'PUT', cuerpo: { [input.dataset.config]: input.checked } }));
   if (r) toast('Preferencia guardada', 'ok');
