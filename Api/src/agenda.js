@@ -29,17 +29,17 @@ function conEspecialidades(docs, todas = false) {
 
 // Por defecto solo los activos; `todos` los incluye para la pantalla de administración.
 function doctores({ todos = false } = {}) {
-  const filas = db.prepare(`SELECT id, nombre, experiencia, bio, activo FROM doctores ${todos ? '' : 'WHERE activo = 1'} ORDER BY nombre`).all();
+  const filas = db.prepare(`SELECT id, nombre, experiencia, bio, activo FROM doctores WHERE eliminado = 0 ${todos ? '' : 'AND activo = 1'} ORDER BY nombre`).all();
   return conEspecialidades(filas.map(d => ({ ...d, activo: !!d.activo })), todos);
 }
 function doctorPor(id) {
-  const fila = db.prepare('SELECT id, nombre, experiencia, bio FROM doctores WHERE id = ? AND activo = 1').get(id);
+  const fila = db.prepare('SELECT id, nombre, experiencia, bio FROM doctores WHERE id = ? AND activo = 1 AND eliminado = 0').get(id);
   return fila ? conEspecialidades([fila])[0] : undefined;
 }
 const nombreDoc = id => db.prepare('SELECT nombre FROM doctores WHERE id = ?').get(id)?.nombre || 'Odontólogo';
 
 function catalogo({ todos = false } = {}) {
-  const filas = db.prepare(`SELECT id, nombre, duracion, precio, tipo, activo FROM procedimientos ${todos ? '' : 'WHERE activo = 1'} ORDER BY orden, id`).all();
+  const filas = db.prepare(`SELECT id, nombre, duracion, precio, tipo, activo FROM procedimientos WHERE eliminado = 0 ${todos ? '' : 'AND activo = 1'} ORDER BY orden, id`).all();
   return Object.fromEntries(filas.map(({ id, activo, ...p }) => [id, todos ? { ...p, activo: !!activo } : p]));
 }
 
@@ -47,7 +47,7 @@ function catalogo({ todos = false } = {}) {
 function especialidades({ todos = false } = {}) {
   const esp = db.prepare(`SELECT id, nombre, activo FROM especialidades ${todos ? '' : 'WHERE activo = 1'} ORDER BY orden, id`).all();
   const procs = db.prepare(`SELECT ep.especialidad_id, ep.proc_id FROM especialidad_procs ep
-    JOIN procedimientos p ON p.id = ep.proc_id ${todos ? '' : 'WHERE p.activo = 1'} ORDER BY p.orden, p.id`).all();
+    JOIN procedimientos p ON p.id = ep.proc_id WHERE p.eliminado = 0 ${todos ? '' : 'AND p.activo = 1'} ORDER BY p.orden, p.id`).all();
   return Object.fromEntries(esp.map(e => [e.id, {
     nombre: e.nombre,
     procs: procs.filter(p => p.especialidad_id === e.id).map(p => p.proc_id),
@@ -172,7 +172,7 @@ function contextoDia({ doctor, fecha, paciente, telefono }) {
   const tel = normalizarTelefono(telefono), nom = String(paciente || '').trim().toLowerCase();
   return {
     bloqueos: db.prepare('SELECT desde, hasta FROM bloqueos WHERE doctor_id = ? AND fecha = ?').all(doctor, fecha),
-    citasDoctor: db.prepare(`SELECT id, paciente, inicio, duracion FROM citas WHERE doctor_id = ? AND fecha = ? AND estado != 'cancelada'`).all(doctor, fecha),
+    citasDoctor: db.prepare(`SELECT id, inicio, duracion FROM citas WHERE doctor_id = ? AND fecha = ? AND estado != 'cancelada'`).all(doctor, fecha),
     citasPaciente: (tel || nom)
       ? db.prepare(`SELECT id, inicio, duracion, doctor_id AS doctor FROM citas WHERE fecha = ? AND estado != 'cancelada'
           AND ((? != '' AND telefono = ?) OR (? != '' AND lower(paciente) = ?))`).all(fecha, tel, tel, nom, nom)
@@ -200,7 +200,8 @@ function validarHorario({ doctor, fecha, inicio, duracion, proc, paciente, telef
   if (c.bloqueos.some(b => solapa(inicio, fin, b.desde, b.hasta))) return 'El odontólogo tiene la agenda bloqueada en ese horario.';
 
   const cruce = c.citasDoctor.find(x => x.id !== ignorar && solapa(inicio, fin, x.inicio, x.inicio + x.duracion));
-  if (cruce) return `Se cruza con la cita de ${cruce.paciente} (${hhmm(cruce.inicio)}–${hhmm(cruce.inicio + cruce.duracion)}).`;
+  // Sin el nombre del otro paciente: es un dato privado.
+  if (cruce) return `Se cruza con otra cita (${hhmm(cruce.inicio)}–${hhmm(cruce.inicio + cruce.duracion)}).`;
 
   // El mismo paciente no puede tener dos citas a la vez, ni con odontólogos distintos.
   const propia = c.citasPaciente.find(x => x.id !== ignorar && solapa(inicio, fin, x.inicio, x.inicio + x.duracion));
@@ -376,28 +377,48 @@ const reagendar = db.transaction((itemId, fecha, inicio) => {
   return r;
 });
 
-// Asigna a cada paciente el primer horario libre con la misma duración.
+// El paciente ya no quiere un nuevo horario: sale de la cola (la cita sigue cancelada).
+const quitarDeCola = id => db.prepare('DELETE FROM cola WHERE id = ?').run(id).changes > 0;
+
+// Para buscar horarios de un paciente de la cola: mismo odontólogo y misma duración.
+// Sin `proc`, porque una cita re-agendada conserva su procedimiento aunque ya no se ofrezca.
+const paramsCola = item => ({ doctor: item.doctor, duracion: item.duracion, proc: null, paciente: item.paciente, telefono: item.telefono });
+
+// ¿Sigue libre el horario que tenía antes de cancelar? (puede haberse cancelado por error)
+function horarioOriginalLibre(item) {
+  const original = { fecha: item.fechaOriginal, inicio: item.inicioOriginal };
+  return validarHorario({ ...paramsCola(item), ...original }) ? null : original;
+}
+
+// Asigna a cada paciente su horario original si sigue libre o, si no, el primero disponible.
+// Devuelve dónde quedó cada uno.
 function reagendarAutomatico(itemIds) {
-  let ok = 0, sinCupo = 0;
+  const reagendados = [], sinCupo = [];
   itemIds.forEach(id => {
     const item = itemColaPor(id);
     if (!item) return;
-    const [primero] = proximosHorarios(
-      { doctor: item.doctor, duracion: item.duracion, proc: item.proc, paciente: item.paciente, telefono: item.telefono },
-      desdeParaReagendar(item), 1, 45);
-    if (primero && !reagendar(id, primero.fecha, primero.inicio).error) ok++;
-    else sinCupo++;
+    const destino = horarioOriginalLibre(item) || proximosHorarios(paramsCola(item), desdeParaReagendar(item), 1, 45)[0];
+    const r = destino ? reagendar(id, destino.fecha, destino.inicio) : null;
+    if (r && !r.error) {
+      reagendados.push({ paciente: item.paciente, doctor: item.doctor, doctorNombre: r.cita.doctorNombre, procNombre: r.cita.procNombre, fecha: r.cita.fecha, inicio: r.cita.inicio, duracion: r.cita.duracion });
+    } else {
+      sinCupo.push({ paciente: item.paciente, doctorNombre: item.doctorNombre });
+    }
   });
-  if (ok) notificar('Re-agendamiento automático', `${ok} paciente(s) recibieron un nuevo horario`, 'agenda');
-  return { ok, sinCupo };
+  if (reagendados.length) notificar('Re-agendamiento automático', `${reagendados.length} paciente(s) recibieron un nuevo horario`, 'agenda');
+  return { ok: reagendados.length, sinCupo: sinCupo.length, reagendados, sinCupoPacientes: sinCupo };
 }
 
-function opcionesReagendar(itemId, max = 12) {
+// Sin fecha: el horario original (si sigue libre) y sugerencias repartidas en los próximos días.
+// Con fecha: todos los horarios libres de ese día.
+function opcionesReagendar(itemId, { fecha, max = 12 } = {}) {
   const item = itemColaPor(itemId);
   if (!item) return null;
-  return proximosHorarios(
-    { doctor: item.doctor, duracion: item.duracion, proc: item.proc, paciente: item.paciente, telefono: item.telefono },
-    desdeParaReagendar(item), max);
+  if (fecha) return { fecha, libres: horariosLibres({ ...paramsCola(item), fecha }) };
+  const original = horarioOriginalLibre(item);
+  const sugeridos = proximosHorarios(paramsCola(item), desdeParaReagendar(item), max)
+    .filter(h => !(original && h.fecha === original.fecha && h.inicio === original.inicio));
+  return { original, sugeridos };
 }
 
 
@@ -440,5 +461,5 @@ module.exports = {
   registrar, notificar, listarMensajes, listarNotificaciones, marcarNotificacionesLeidas,
   validarHorario, horariosLibres, proximosHorarios, citasAfectadas, yaEmpezo,
   crearCita, cancelarCita, marcarAsistencia, validarBloqueo, aplicarBloqueo, quitarBloqueo,
-  reagendar, reagendarAutomatico, opcionesReagendar, estadisticas
+  reagendar, reagendarAutomatico, opcionesReagendar, horarioOriginalLibre, quitarDeCola, estadisticas
 };

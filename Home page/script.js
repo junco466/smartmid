@@ -724,9 +724,7 @@ async function abrirEmergencia(doctor, fecha) {
           acciones: [
             { texto: 'Lo haré desde la cola', accion: () => { cerrarModal(); mostrarSeccion('cola'); } },
             { texto: 'Re-agendar automáticamente', clase: 'btn-primary', accion: async () => {
-              const res = await reagendarAutomatico(items.map(i => i.id));
-              cerrarModal();
-              if (res) toast(`${plural(res.ok, 'paciente re-agendado', 'pacientes re-agendados')}${res.sinCupo ? ` · ${res.sinCupo} sin cupo` : ''}`, 'ok');
+              mostrarResultadoAuto(await reagendarAutomatico(items.map(i => i.id)));
             } }
           ]
         });
@@ -745,6 +743,7 @@ function renderCola() {
       </div>
       <div class="list-actions">
         <span class="badge" data-estado="pendiente">Por re-agendar</span>
+        <button type="button" class="btn btn-ghost btn-sm" data-quitar-cola="${q.id}">Quitar</button>
         <button type="button" class="btn btn-primary btn-sm" data-reagendar="${q.id}">Re-agendar</button>
       </div>
     </li>`).join('') : vacio('No hay pacientes pendientes. Todo al día.');
@@ -843,6 +842,39 @@ async function guardarEquipo(ruta, metodo, cuerpo, mensaje) {
   toast(mensaje, 'ok');
 }
 
+// Eliminar: primero se consulta al servidor qué se borra y si está permitido, y se muestra la advertencia.
+const RUTAS_EQUIPO = { doctor: 'doctores', especialidad: 'especialidades', procedimiento: 'procedimientos', motivo: 'motivos' };
+async function abrirEliminar(tipo, id, nombre) {
+  const ruta = `/admin/${RUTAS_EQUIPO[tipo]}/${encodeURIComponent(id)}`;
+  let i;
+  try {
+    i = await api(`${ruta}/impacto`);
+  } catch (e) {
+    return toast(e.message, 'error');
+  }
+  const avisos = i.avisos.length ? `<ul class="checklist">${i.avisos.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : '';
+  abrirModal({
+    titulo: `Eliminar · ${nombre}`,
+    tipo: 'peligro',
+    cuerpo: i.bloqueo
+      ? `<p class="alert alert-danger"><strong>Todavía no se puede eliminar.</strong> ${esc(i.bloqueo)}</p>`
+      : `<p>Esta acción <strong>no se puede deshacer</strong>.${tipo !== 'motivo' ? ' Si solo quieres que deje de aparecer por un tiempo, mejor desactívalo.' : ''}</p>${avisos}`,
+    acciones: [
+      { texto: 'Volver', accion: cerrarModal },
+      ...(i.bloqueo ? [] : [{ texto: 'Eliminar definitivamente', clase: 'btn-danger', accion: async () => {
+        try {
+          await api(ruta, { metodo: 'DELETE' });
+        } catch (e) {
+          return toast(e.message, 'error');
+        }
+        cerrarModal();
+        await recargar();
+        toast(`${nombre} se eliminó.`, 'ok');
+      } }])
+    ]
+  });
+}
+
 function abrirEditorEquipo(tipo, id) {
   const eq = datos.equipo;
   if (!eq) return;
@@ -872,6 +904,7 @@ function abrirDoctor(d) {
       ${d ? casillaActivo(d.activo, 'Activo (aparece en la página, la agenda y el chatbot)') : ''}
       ${errorModal}`,
     acciones: [
+      ...(d ? [{ texto: 'Eliminar', clase: 'btn-ghost', accion: () => abrirEliminar('doctor', d.id, d.nombre) }] : []),
       { texto: 'Cancelar', accion: cerrarModal },
       { texto: d ? 'Guardar cambios' : 'Agregar', clase: 'btn-primary', accion: () => guardarEquipo(
         d ? `/admin/doctores/${encodeURIComponent(d.id)}` : '/admin/doctores', d ? 'PUT' : 'POST',
@@ -898,6 +931,7 @@ function abrirEspecialidad(id) {
       ${e ? casillaActivo(e.activo, 'Activa') : ''}
       ${errorModal}`,
     acciones: [
+      ...(e ? [{ texto: 'Eliminar', clase: 'btn-ghost', accion: () => abrirEliminar('especialidad', id, e.nombre) }] : []),
       { texto: 'Cancelar', accion: cerrarModal },
       { texto: e ? 'Guardar cambios' : 'Crear', clase: 'btn-primary', accion: () => guardarEquipo(
         e ? `/admin/especialidades/${encodeURIComponent(id)}` : '/admin/especialidades', e ? 'PUT' : 'POST',
@@ -926,6 +960,7 @@ function abrirProcedimiento(id) {
       ${p ? '<p class="field-hint">Las citas ya agendadas conservan su duración original.</p>' : ''}
       ${errorModal}`,
     acciones: [
+      ...(p ? [{ texto: 'Eliminar', clase: 'btn-ghost', accion: () => abrirEliminar('procedimiento', id, p.nombre) }] : []),
       { texto: 'Cancelar', accion: cerrarModal },
       { texto: p ? 'Guardar cambios' : 'Crear', clase: 'btn-primary', accion: () => guardarEquipo(
         p ? `/admin/procedimientos/${encodeURIComponent(id)}` : '/admin/procedimientos', p ? 'PUT' : 'POST',
@@ -945,7 +980,7 @@ function abrirMotivo(m) {
     .map(([id, e]) => `<option value="${esc(id)}"${m?.especialidad === id ? ' selected' : ''}>${esc(etiquetaInactiva(e.nombre, e.activo))}</option>`).join('');
   const acciones = [{ texto: 'Cancelar', accion: cerrarModal }];
   if (m) {
-    acciones.unshift({ texto: 'Eliminar', clase: 'btn-ghost', accion: () => guardarEquipo(`/admin/motivos/${m.id}`, 'DELETE', undefined, 'Motivo eliminado') });
+    acciones.unshift({ texto: 'Eliminar', clase: 'btn-ghost', accion: () => abrirEliminar('motivo', m.id, m.motivo) });
   }
   acciones.push({ texto: m ? 'Guardar cambios' : 'Crear', clase: 'btn-primary', accion: () => guardarEquipo(
     m ? `/admin/motivos/${m.id}` : '/admin/motivos', m ? 'PUT' : 'POST',
@@ -1100,17 +1135,39 @@ function abrirCancelar(c) {
       <div class="field"><label for="cancel-motivo">Motivo</label>
         <select id="cancel-motivo"><option>El paciente canceló</option><option>El odontólogo no puede atender</option><option>Decisión de la clínica</option></select>
       </div>
-      ${autoReagendar ? `<p class="alert">Al confirmar, le ofreceremos de inmediato un nuevo horario con la misma duración (${c.duracion} min).</p>` : ''}`,
+      <p class="alert"><strong>Solo cancelar:</strong> la cita se cancela y no se le busca otro horario.<br><strong>Cancelar y re-agendar:</strong> eliges ahora un nuevo horario con la misma duración (${c.duracion} min); si no eliges, el paciente queda en la cola de re-agendamiento.</p>`,
     acciones: [
       { texto: 'Volver', accion: cerrarModal },
-      { texto: autoReagendar ? 'Cancelar y re-agendar' : 'Cancelar cita', clase: 'btn-danger', accion: async () => {
+      { texto: 'Solo cancelar', clase: autoReagendar ? 'btn-outline' : 'btn-danger', accion: async () => {
+        const motivo = $('#cancel-motivo').value;
+        const r = await ejecutar(() => api(`/citas/${c.id}/cancelar`, { metodo: 'POST', cuerpo: { motivo, reagendar: false } }));
+        if (!r) return;
+        cerrarModal();
+        toast('Cita cancelada.', 'ok');
+      } },
+      { texto: 'Cancelar y re-agendar', clase: autoReagendar ? 'btn-danger' : 'btn-outline', accion: async () => {
         const motivo = $('#cancel-motivo').value;
         const r = await ejecutar(() => api(`/citas/${c.id}/cancelar`, { metodo: 'POST', cuerpo: { motivo } }));
-        if (!r) return;
-        if (autoReagendar && r.item) await abrirReagendar(r.item, true);
-        else { cerrarModal(); toast('Cita cancelada. El paciente quedó en la cola de re-agendamiento.'); }
+        if (r?.item) await abrirReagendar(r.item, true);
       } }
     ]
+  });
+}
+
+// Muestra a dónde quedó re-agendado cada paciente (re-agendamiento automático).
+function mostrarResultadoAuto(r) {
+  if (!r) return;
+  const lista = r.reagendados.map(x => `<li><div class="list-main"><p class="list-title">${esc(x.paciente)}</p>
+      <p class="list-meta">${esc(fmtLarga(x.fecha))}, ${hhmm(x.inicio)}–${hhmm(x.inicio + x.duracion)} · ${esc(x.procNombre)} · ${esc(x.doctorNombre)}</p></div>
+      <div class="list-actions"><span class="badge" data-estado="programada">Re-agendado</span></div></li>`).join('');
+  const sinCupo = r.sinCupoPacientes.map(x => `<li><div class="list-main"><p class="list-title">${esc(x.paciente)}</p>
+      <p class="list-meta">Sin horarios libres con ${esc(x.doctorNombre)} en los próximos 45 días · sigue en la cola</p></div>
+      <div class="list-actions"><span class="badge" data-estado="pendiente">Sin cupo</span></div></li>`).join('');
+  abrirModal({
+    titulo: 'Resultado del re-agendamiento',
+    cuerpo: `<p>${plural(r.ok, 'paciente re-agendado', 'pacientes re-agendados')}${r.sinCupo ? ` · ${r.sinCupo} sin cupo` : ''}. Cada uno recibió su horario anterior si seguía libre o, si no, el primero disponible con la misma duración.</p>
+      ${r.reagendados.length || r.sinCupoPacientes.length ? `<ul class="list list-compact">${lista}${sinCupo}</ul>` : ''}`,
+    acciones: [{ texto: 'Entendido', clase: 'btn-primary', accion: cerrarModal }]
   });
 }
 
@@ -1121,19 +1178,30 @@ async function abrirReagendar(item, recienCancelada = false) {
   } catch (e) {
     return toast(e.message, 'error');
   }
-  const grupos = opciones.reduce((acc, h) => { (acc[h.fecha] = acc[h.fecha] || []).push(h.inicio); return acc; }, {});
+  const { original, sugeridos } = opciones;
+  const grupos = sugeridos.reduce((acc, h) => { (acc[h.fecha] = acc[h.fecha] || []).push(h.inicio); return acc; }, {});
   let elegido = null;
+  const chip = (f, t) => `<button type="button" class="chip" data-slot="${f}|${t}" aria-pressed="false">${hhmm(t)}<span class="chip-sub">a ${hhmm(t + item.duracion)}</span></button>`;
 
-  const horariosHTML = opciones.length
-    ? Object.entries(grupos).map(([f, horas]) => `<p class="mini-title">${esc(fmtLarga(f))}</p>
-        <div class="chips">${horas.map(t => `<button type="button" class="chip" data-slot="${f}|${t}" aria-pressed="false">${hhmm(t)}<span class="chip-sub">a ${hhmm(t + item.duracion)}</span></button>`).join('')}</div>`).join('')
+  // Si se canceló por error y el horario sigue libre, se puede devolver tal cual.
+  const originalHTML = original
+    ? `<p class="mini-title">Su horario anterior (sigue libre)</p><div class="chips"><button type="button" class="chip" data-slot="${original.fecha}|${original.inicio}" aria-pressed="false">${esc(fmtCorta(original.fecha))}, ${hhmm(original.inicio)}<span class="chip-sub">a ${hhmm(original.inicio + item.duracion)}</span></button></div>`
+    : '';
+  const horariosHTML = sugeridos.length
+    ? Object.entries(grupos).map(([f, horas]) => `<p class="mini-title">${esc(fmtLarga(f))}</p><div class="chips">${horas.map(t => chip(f, t)).join('')}</div>`).join('')
     : '<p class="chips-empty">No hay horarios libres en los próximos 30 días con este odontólogo.</p>';
 
   abrirModal({
     titulo: 'Re-agendar cita',
-    cuerpo: `${recienCancelada ? '<p class="alert">Cita cancelada. Elige un nuevo horario para ofrecérselo al paciente por WhatsApp.</p>' : ''}
+    cuerpo: `<div id="reag">${recienCancelada ? '<p class="alert">Cita cancelada. Elige un nuevo horario para ofrecérselo al paciente por WhatsApp.</p>' : ''}
       <p><strong>${esc(item.paciente)}</strong> · ${esc(nombreProc(item.proc))} · <strong>${item.duracion} min</strong> con ${esc(nombreDoc(item.doctor))}</p>
-      ${horariosHTML}`,
+      ${originalHTML}
+      <p class="mini-title">Sugerencias</p>
+      ${horariosHTML}
+      <div class="field-row" style="margin-top:12px">
+        <div class="field"><label for="reag-fecha">Otro día (todos sus horarios)</label><input type="date" id="reag-fecha" min="${hoyISO()}"></div>
+      </div>
+      <div id="reag-dia"></div></div>`,
     acciones: [
       { texto: 'Dejar en la cola', accion: () => { cerrarModal(); toast('El paciente quedó en la cola de re-agendamiento'); } },
       { texto: 'Confirmar nuevo horario', clase: 'btn-primary', accion: async () => {
@@ -1146,13 +1214,28 @@ async function abrirReagendar(item, recienCancelada = false) {
     ]
   });
 
-  M.cuerpo.querySelectorAll('[data-slot]').forEach(boton => {
-    boton.addEventListener('click', () => {
-      M.cuerpo.querySelectorAll('[data-slot]').forEach(x => x.setAttribute('aria-pressed', 'false'));
-      boton.setAttribute('aria-pressed', 'true');
-      const [fecha, inicio] = boton.dataset.slot.split('|');
-      elegido = { fecha, inicio: Number(inicio) };
-    });
+  // Un solo horario elegido entre todos los grupos (incluido el día que se consulte).
+  $('#reag').addEventListener('click', e => {
+    const boton = e.target.closest('[data-slot]');
+    if (!boton) return;
+    $('#reag').querySelectorAll('[data-slot]').forEach(x => x.setAttribute('aria-pressed', 'false'));
+    boton.setAttribute('aria-pressed', 'true');
+    const [fecha, inicio] = boton.dataset.slot.split('|');
+    elegido = { fecha, inicio: Number(inicio) };
+  });
+
+  $('#reag-fecha').addEventListener('change', async e => {
+    const fecha = e.target.value, contenedor = $('#reag-dia');
+    if (!fecha) { contenedor.innerHTML = ''; return; }
+    contenedor.innerHTML = '<p class="chips-empty">Buscando horarios…</p>';
+    try {
+      const r = await api(`/cola/${item.id}/opciones?${consulta({ fecha })}`);
+      contenedor.innerHTML = r.libres.length
+        ? `<p class="mini-title">${esc(fmtLarga(fecha))}</p><div class="chips">${r.libres.map(t => chip(fecha, t)).join('')}</div>`
+        : `<p class="chips-empty">${esLaborable(fecha) ? 'No hay horarios libres ese día.' : 'La clínica no atiende ese día.'}</p>`;
+    } catch (err) {
+      contenedor.innerHTML = `<p class="chips-empty">${esc(err.message)}</p>`;
+    }
   });
 }
 
@@ -1257,6 +1340,26 @@ document.addEventListener('click', e => {
 
   const reag = t.closest('[data-reagendar]');
   if (reag) { const q = porId(datos.cola, reag.dataset.reagendar); if (q) abrirReagendar(q); return; }
+
+  const quitarCola = t.closest('[data-quitar-cola]');
+  if (quitarCola) {
+    const q = porId(datos.cola, quitarCola.dataset.quitarCola);
+    if (!q) return;
+    abrirModal({
+      titulo: 'Quitar de la cola',
+      cuerpo: `<p><strong>${esc(q.paciente)}</strong> ya no quiere un nuevo horario. Su cita del ${esc(fmtCorta(q.fechaOriginal))} a las ${hhmm(q.inicioOriginal)} queda cancelada y sale de la cola de re-agendamiento.</p>`,
+      acciones: [
+        { texto: 'Volver', accion: cerrarModal },
+        { texto: 'Quitar de la cola', clase: 'btn-danger', accion: async () => {
+          const r = await ejecutar(() => api(`/cola/${q.id}`, { metodo: 'DELETE' }).then(() => true));
+          if (!r) return;
+          cerrarModal();
+          toast(`${q.paciente} salió de la cola de re-agendamiento.`, 'ok');
+        } }
+      ]
+    });
+    return;
+  }
 
   const fecha = t.closest('#cita-fechas [data-fecha]');
   if (fecha) { ui.nueva.fecha = fecha.dataset.fecha; ui.nueva.inicio = null; actualizarNueva(); return; }
@@ -1466,10 +1569,15 @@ $('#btn-emergencia').addEventListener('click', () => {
 $('#em-ejecutar').addEventListener('click', () => abrirEmergencia($('#em-doctor').value, $('#em-fecha').value));
 
 // Cola
-$('#cola-auto').addEventListener('click', async () => {
-  const r = await reagendarAutomatico();
-  if (r) toast(`${plural(r.ok, 'paciente re-agendado', 'pacientes re-agendados')}${r.sinCupo ? ` · ${r.sinCupo} sin cupo` : ''}`, r.ok ? 'ok' : 'error');
-});
+$('#cola-auto').addEventListener('click', () => abrirModal({
+  titulo: 'Re-agendar a todos automáticamente',
+  cuerpo: `<p>A cada paciente de la cola se le asignará su <strong>horario anterior si sigue libre</strong> o, si no, el <strong>primer horario disponible</strong> con su mismo odontólogo y la misma duración.</p>
+    <p class="alert">Si prefieres elegir tú el horario de cada uno, usa el botón <strong>Re-agendar</strong> de cada paciente.</p>`,
+  acciones: [
+    { texto: 'Volver', accion: cerrarModal },
+    { texto: 'Re-agendar a todos', clase: 'btn-primary', accion: async () => mostrarResultadoAuto(await reagendarAutomatico()) }
+  ]
+}));
 
 // Catálogo y ajustes
 $('#cat-guardar').addEventListener('click', guardarCatalogo);

@@ -93,7 +93,8 @@ const cuando = (fecha, inicio) => `${fmtCorta(fecha)} · ${hhmm(inicio)}`;
 // "lunes 2 de noviembre"
 const dia = fecha => deISO(fecha).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }).replace(',', '');
 const Dia = fecha => dia(fecha).charAt(0).toUpperCase() + dia(fecha).slice(1);
-const PIE = '_Escribe *menu* para volver al inicio._';
+// Va al final de todos los mensajes del bot.
+const PIE = '_Escribe *menu* o *0* para volver al menú principal._';
 
 const MENU = `¿En qué te puedo ayudar? Responde con el número:
 
@@ -128,7 +129,8 @@ function citasDelPaciente(telefono) {
   return agenda.listarCitas({ telefono, estado: 'programada', desde: hoyISO() });
 }
 
-const textoCita = c => `${cuando(c.fecha, c.inicio)} · ${c.procNombre} con ${c.doctorNombre}`;
+// Varias personas pueden agendar con el mismo número (por ejemplo, para sus hijos): siempre se dice de quién es.
+const textoCita = c => `${cuando(c.fecha, c.inicio)} · ${c.procNombre} con ${c.doctorNombre}\n   👤 ${c.paciente}`;
 
 // Próximos horarios libres (de uno o de varios odontólogos), ordenados por fecha.
 function buscarHorarios(sesion, desde) {
@@ -165,8 +167,11 @@ function ir(sesion, paso, cambios = {}) {
 // Vuelve al menú y deja el texto listo para "¿algo más?".
 function alMenu(sesion, mensaje) {
   Object.assign(sesion, { paso: 'menu', opciones: null });
-  return `${mensaje}\n\n¿Te ayudo con algo más? Escribe el número de una opción o *menu* para ver el menú.`;
+  return `${mensaje}\n\n¿Te ayudo con algo más? Responde con el número de una opción del menú.`;
 }
+
+// Lista de horarios desde hoy. `paginas` guarda desde qué día empieza cada página, para poder volver atrás.
+const irHorarios = (sesion, cambios = {}) => ir(sesion, 'horario', { ...cambios, paginas: [hoyISO()] });
 
 // Al elegir especialidad: siguiente paso según cuántos procedimientos y odontólogos hay.
 function trasEspecialidad(sesion, especialidad, intro = '') {
@@ -186,7 +191,7 @@ function trasProcedimiento(sesion, proc, intro = '') {
   const docs = doctoresDe(sesion.especialidad).filter(d => agenda.puedeHacer(d, proc));
   if (docs.length === 1) {
     sesion.doctor = docs[0].id;
-    return `${intro ? intro + '\n\n' : ''}Te atenderá *${docs[0].nombre}*.\n\n` + ir(sesion, 'horario', { pagina: hoyISO() });
+    return `${intro ? intro + '\n\n' : ''}Te atenderá *${docs[0].nombre}*.\n\n` + irHorarios(sesion);
   }
   return (intro ? intro + '\n\n' : '') + ir(sesion, 'doctor');
 }
@@ -197,12 +202,13 @@ const PASOS = {
     responder(s, t) {
       const opcion = elegir(t, ['agendar', 'mis citas', 'cancelar', 'precios', 'odontologos']);
       if (opcion === 0 || t.includes('agendar') || t.includes('cita nueva')) {
-        return ir(s, 'motivo', { modo: 'nueva', especialidad: null, proc: null, doctor: null, citaId: null, itemId: null });
+        return ir(s, 'motivo', { modo: 'nueva', especialidad: null, proc: null, doctor: null, citaId: null, itemId: null, nombre: nombrePaciente(s.telefono) });
       }
       if (opcion === 1) {
         const citas = citasDelPaciente(s.telefono);
         if (!citas.length) return alMenu(s, 'No tienes citas programadas. Escribe *1* para agendar una.');
-        return alMenu(s, `📅 *Tus citas programadas:*\n\n${citas.map(c => `• ${textoCita(c)}`).join('\n')}`);
+        const varios = new Set(citas.map(c => c.paciente.toLowerCase())).size > 1;
+        return alMenu(s, `📅 *${varios ? 'Citas programadas con este número' : 'Tus citas programadas'}:*\n\n${citas.map(c => `• ${textoCita(c)}`).join('\n')}`);
       }
       if (opcion === 2 || t.includes('cambiar')) return ir(s, 'elegirCita');
       if (opcion === 3 || t.includes('precio') || t.includes('tarifa')) {
@@ -275,30 +281,55 @@ const PASOS = {
       const i = elegir(t, [...docs.map(d => d.nombre), 'me da igual']);
       if (i < 0) return noEntendi(PASOS.doctor.mostrar(s));
       s.doctor = i < docs.length ? docs[i].id : null;
-      return ir(s, 'horario', { pagina: hoyISO() });
+      return irHorarios(s);
     }
   },
 
-  // Próximos horarios libres. "Ver más" avanza; "Otra fecha" pide un día concreto.
+  // Próximos horarios libres. "Ver más" avanza, "anteriores" regresa y "Otra fecha" pide un día concreto.
   horario: {
     mostrar(s) {
-      const opciones = buscarHorarios(s, s.pagina);
+      if (!s.paginas?.length) s.paginas = [hoyISO()];
+      const primeraPagina = s.paginas.length === 1;
+      let opciones = buscarHorarios(s, s.paginas.at(-1));
+      // Si canceló (quizá por error) y su horario anterior sigue libre, se le ofrece primero.
+      if (s.modo === 'reagendar' && primeraPagina) {
+        const item = agenda.itemColaPor(s.itemId);
+        const original = item && agenda.horarioOriginalLibre(item);
+        if (original) {
+          opciones = [{ ...original, doctor: item.doctor, original: true },
+            ...opciones.filter(o => !(o.fecha === original.fecha && o.inicio === original.inicio))].slice(0, HORARIOS_POR_PAGINA);
+        }
+      }
       s.opciones = opciones;
       if (!opciones.length) {
-        return alMenu(s, 'Lo siento, no encontré horarios libres en el próximo mes. 😕 La clínica te puede ayudar directamente; escribe *menu* para volver.');
+        if (!primeraPagina) {
+          s.paginas.pop();
+          return 'No hay más horarios libres en el próximo mes. 😕\n\n' + PASOS.horario.mostrar(s);
+        }
+        return alMenu(s, 'Lo siento, no encontré horarios libres en el próximo mes. 😕 La clínica te puede ayudar directamente.');
       }
       const conDoctor = !s.doctor;
-      return `Estos son los próximos horarios libres:\n\n${lista([
-        ...opciones.map(o => cuando(o.fecha, o.inicio) + (conDoctor ? ` (${agenda.nombreDoc(o.doctor)})` : '')),
-        'Ver más horarios',
-        'Prefiero otra fecha'
+      s.acciones = ['mas', ...(primeraPagina ? [] : ['anteriores']), 'fecha'];
+      const textos = { mas: 'Ver más horarios', anteriores: 'Volver a los horarios anteriores', fecha: 'Prefiero otra fecha' };
+      return `${primeraPagina ? 'Estos son los próximos horarios libres' : 'Más horarios libres'}:\n\n${lista([
+        ...opciones.map(o => cuando(o.fecha, o.inicio) + (conDoctor ? ` (${agenda.nombreDoc(o.doctor)})` : '') + (o.original ? ' _(tu horario anterior)_' : '')),
+        ...s.acciones.map(a => textos[a])
       ])}`;
     },
     responder(s, t) {
       const n = s.opciones.length;
-      const i = elegir(t, [...s.opciones.map((o, k) => `__${k}`), 'ver mas horarios', 'otra fecha']);
-      if (i === n) return ir(s, 'horario', { pagina: sumarDias(s.opciones[n - 1].fecha, 1) });
-      if (i === n + 1) return ir(s, 'fecha');
+      const palabras = { mas: 'ver mas horarios', anteriores: 'volver a los horarios anteriores', fecha: 'otra fecha' };
+      const i = elegir(t, [...s.opciones.map((o, k) => `__${k}`), ...s.acciones.map(a => palabras[a])]);
+      const accion = i >= n ? s.acciones[i - n] : null;
+      if (accion === 'mas') {
+        s.paginas.push(sumarDias(s.opciones[n - 1].fecha, 1));
+        return PASOS.horario.mostrar(s);
+      }
+      if (accion === 'anteriores' || (t.includes('anterior') && s.paginas.length > 1)) {
+        s.paginas.pop();
+        return PASOS.horario.mostrar(s);
+      }
+      if (accion === 'fecha') return ir(s, 'fecha');
       if (i < 0) {
         const fecha = leerFecha(t); // también puede escribir directamente una fecha
         if (fecha) return PASOS.fecha.responder(s, t);
@@ -320,7 +351,7 @@ const PASOS = {
       s.opciones = opciones;
       s.paso = 'horarioDia';
       const conDoctor = !s.doctor;
-      return `Horarios libres el *${dia(fecha)}*:\n\n${lista([...opciones.map(o => hhmm(o.inicio) + (conDoctor ? ` (${agenda.nombreDoc(o.doctor)})` : '')), 'Otra fecha'])}`;
+      return `Horarios libres el *${dia(fecha)}*:\n\n${lista([...opciones.map(o => hhmm(o.inicio) + (conDoctor ? ` (${agenda.nombreDoc(o.doctor)})` : '')), 'Otra fecha', 'Volver a la lista de horarios'])}`;
     }
   },
 
@@ -328,11 +359,12 @@ const PASOS = {
     mostrar: s => PASOS.fecha.responder(s, s.opciones[0].fecha),
     responder(s, t) {
       const n = s.opciones.length;
-      const i = elegir(t, [...s.opciones.map(o => hhmm(o.inicio)), 'otra fecha']);
+      const i = elegir(t, [...s.opciones.map(o => hhmm(o.inicio)), 'otra fecha', 'volver a la lista de horarios']);
       if (i === n) return ir(s, 'fecha');
+      if (i === n + 1 || t.includes('lista')) return ir(s, 'horario'); // conserva la página en la que iba
       if (i < 0) {
         if (leerFecha(t)) return PASOS.fecha.responder(s, t);
-        return noEntendi('Escribe el número del horario que prefieres, u *otra fecha*.');
+        return noEntendi('Escribe el número del horario que prefieres, *otra fecha* o *lista* para volver a la lista.');
       }
       return elegirHorario(s, s.opciones[i]);
     }
@@ -365,7 +397,7 @@ Responde *sí* para confirmar o *no* para elegir otro horario.${s.modo === 'nuev
     },
     responder(s, t) {
       if (t === 'nombre' && s.modo === 'nueva') return ir(s, 'nombre');
-      if (esNo(t)) return ir(s, 'horario', { pagina: hoyISO() });
+      if (esNo(t)) return irHorarios(s);
       if (!esSi(t)) return noEntendi('Responde *sí* para confirmar o *no* para elegir otro horario.');
       return guardarCita(s);
     }
@@ -403,7 +435,7 @@ Responde *sí* para confirmar o *no* para elegir otro horario.${s.modo === 'nuev
       if (i === 0 || t.includes('cambiar')) {
         // Mismo procedimiento, misma duración y mismo odontólogo.
         return 'Busquemos un nuevo horario con la misma duración. 👇\n\n' +
-          ir(s, 'horario', { modo: 'cambio', proc: c.proc, duracion: c.duracion, doctor: c.doctor, nombre: c.paciente, pagina: hoyISO() });
+          irHorarios(s, { modo: 'cambio', proc: c.proc, duracion: c.duracion, doctor: c.doctor, nombre: c.paciente });
       }
       if (i === 1 || t.includes('cancel')) return ir(s, 'confirmarCancelar');
       return noEntendi(PASOS.accionCita.mostrar(s));
@@ -413,7 +445,7 @@ Responde *sí* para confirmar o *no* para elegir otro horario.${s.modo === 'nuev
   confirmarCancelar: {
     mostrar(s) {
       const c = agenda.citaPor(s.citaId);
-      return `¿Seguro que quieres cancelar tu cita del *${cuando(c.fecha, c.inicio)}*? Responde *sí* o *no*.`;
+      return `¿Seguro que quieres cancelar la cita de *${c.paciente}* del *${cuando(c.fecha, c.inicio)}*? Responde *sí* o *no*.`;
     },
     responder(s, t) {
       if (esNo(t)) return alMenu(s, 'Perfecto, tu cita sigue en pie. 👍');
@@ -425,15 +457,19 @@ Responde *sí* para confirmar o *no* para elegir otro horario.${s.modo === 'nuev
       agenda.registrar('Cancelación confirmada por WhatsApp', `${cita.paciente} · ${cita.procNombre} · ${cuando(cita.fecha, cita.inicio)}`, { telefono: s.telefono, doctor: cita.doctor });
       Object.assign(s, { itemId: item.id, proc: cita.proc, duracion: cita.duracion, doctor: cita.doctor, nombre: cita.paciente, citaId: null });
       s.paso = 'ofrecerNuevo';
-      return `✅ Tu cita fue cancelada.\n\n¿Quieres que te ofrezca un nuevo horario con la misma duración (${cita.duracion} min)? Responde *sí* o *no*.`;
+      return `✅ La cita de *${cita.paciente}* fue cancelada.\n\n¿Quieres que te ofrezca un nuevo horario con la misma duración (${cita.duracion} min)? Responde *sí* o *no*.`;
     }
   },
 
   ofrecerNuevo: {
     mostrar: () => '¿Quieres un nuevo horario? Responde *sí* o *no*.',
     responder(s, t) {
-      if (esSi(t)) return ir(s, 'horario', { modo: 'reagendar', pagina: hoyISO() });
-      if (esNo(t)) return alMenu(s, 'Entendido. La clínica podrá contactarte para ofrecerte un nuevo horario.');
+      if (esSi(t)) return irHorarios(s, { modo: 'reagendar' });
+      // Solo quería cancelar: sale de la cola de re-agendamiento.
+      if (esNo(t)) {
+        agenda.quitarDeCola(s.itemId);
+        return alMenu(s, 'Entendido, tu cita quedó cancelada. Cuando quieras agendar una nueva, escribe *1*.');
+      }
       return noEntendi(PASOS.ofrecerNuevo.mostrar(s));
     }
   }
@@ -471,7 +507,7 @@ function guardarCita(s) {
 
   // Alguien tomó ese horario mientras el paciente decidía.
   if (r.error) {
-    return `Ese horario ya no está disponible (${r.error}) 😕\n\n` + ir(s, 'horario', { pagina: hoyISO() });
+    return 'Ese horario ya no está disponible. 😕 Elige otro:\n\n' + irHorarios(s);
   }
 
   const { cita } = r;
@@ -507,13 +543,13 @@ function procesarMensaje(telefono, texto) {
     // Conversación nueva, vencida o "menu": saludo y menú.
     if (!sesion || !PASOS[sesion.paso] || PALABRAS_MENU.includes(t)) {
       sesion = { paso: 'menu', telefono, nombre: nombrePaciente(telefono) };
-      respuesta = `${saludo(sesion)}\n\n${MENU}\n\n${PIE}`;
+      respuesta = `${saludo(sesion)}\n\n${MENU}`;
     } else {
       sesion.telefono = telefono;
       respuesta = PASOS[sesion.paso].responder(sesion, t, String(texto || ''));
     }
     guardarSesion(telefono, sesion);
-    return respuesta;
+    return `${respuesta}\n\n${PIE}`;
   } catch (error) {
     console.error(`Error en la conversación con ${telefono}:`, error);
     db.prepare('DELETE FROM sesiones_bot WHERE telefono = ?').run(telefono);

@@ -144,7 +144,9 @@ router.patch('/citas/:id/asistencia', (req, res) => {
 router.post('/citas/:id/cancelar', (req, res) => {
   const cita = agenda.citaPor(idNum(req.params.id));
   if (!cita || !puedeVer(req, cita.doctor)) return fallo(res, 'La cita no existe.', 404);
-  const r = agenda.cancelarCita(cita.id, String(req.body?.motivo || 'El paciente canceló'));
+  // reagendar: false → solo se cancela, el paciente no pasa a la cola.
+  const aCola = req.body?.reagendar !== false;
+  const r = agenda.cancelarCita(cita.id, String(req.body?.motivo || 'El paciente canceló'), { aCola });
   if (r.error) return fallo(res, r.error, 409);
   const detalle = `${cita.paciente} · ${fmtCorta(cita.fecha)}, ${hhmm(cita.inicio)}`;
   agenda.registrar('Cancelación confirmada por WhatsApp', `${cita.paciente} · ${agenda.nombreProc(cita.proc)} · ${fmtCorta(cita.fecha)}, ${hhmm(cita.inicio)}`, { telefono: cita.telefono, doctor: cita.doctor });
@@ -196,9 +198,18 @@ const itemPermitido = (req, res) => {
   return item;
 };
 
+// Sin ?fecha: { original, sugeridos }. Con ?fecha=AAAA-MM-DD: { fecha, libres } de ese día.
 router.get('/cola/:id/opciones', (req, res) => {
   const item = itemPermitido(req, res);
-  if (item) res.json(agenda.opcionesReagendar(item.id));
+  if (item) res.json(agenda.opcionesReagendar(item.id, { fecha: req.query.fecha }));
+});
+
+// El paciente no quiere un nuevo horario: sale de la cola.
+router.delete('/cola/:id', (req, res) => {
+  const item = itemPermitido(req, res);
+  if (!item) return;
+  agenda.quitarDeCola(item.id);
+  res.status(204).end();
 });
 
 // Cuerpo: { fecha, inicio }
@@ -262,9 +273,22 @@ router.put('/admin/procedimientos/:id', requiereAdmin, guardar(equipo.guardarPro
 // Cuerpo: { motivo, especialidad, detalle?, activo? }
 router.post('/admin/motivos', requiereAdmin, guardar(equipo.guardarMotivo, { crear: true }));
 router.put('/admin/motivos/:id', requiereAdmin, guardar((id, b) => equipo.guardarMotivo(idNum(id), b)));
-router.delete('/admin/motivos/:id', requiereAdmin, (req, res) => {
-  if (!equipo.eliminarMotivo(idNum(req.params.id))) return fallo(res, 'El motivo no existe.', 404);
-  res.status(204).end();
+
+// Eliminar: primero se consulta el impacto (qué se borra y si está permitido) y luego se confirma.
+const TIPOS = { doctores: 'doctor', procedimientos: 'procedimiento', especialidades: 'especialidad', motivos: 'motivo' };
+router.get('/admin/:tipo/:id/impacto', requiereAdmin, (req, res) => {
+  const tipo = TIPOS[req.params.tipo];
+  if (!tipo) return fallo(res, 'Ruta no encontrada.', 404);
+  const r = equipo.impacto(tipo, req.params.id);
+  if (r.error) return fallo(res, r.error, 404);
+  res.json(r);
+});
+router.delete('/admin/:tipo/:id', requiereAdmin, (req, res) => {
+  const tipo = TIPOS[req.params.tipo];
+  if (!tipo) return fallo(res, 'Ruta no encontrada.', 404);
+  const r = equipo.eliminar(tipo, req.params.id);
+  if (r.error) return fallo(res, r.error, 409);
+  res.json(r);
 });
 
 

@@ -1,6 +1,6 @@
 # Guía de pruebas · Smart Mind
 
-Paso a paso para revisar todo antes de modificar el chatbot. Cada paso dice qué hacer y qué debe pasar. Marca la casilla si salió bien; si algo no cuadra, anota el número del paso, lo que viste y el mensaje de la terminal.
+Paso a paso para revisar todo el sistema. Para encender el servidor con Whapi y ngrok, mira [INICIO.md](INICIO.md). Cada paso dice qué hacer y qué debe pasar. Marca la casilla si salió bien; si algo no cuadra, anota el número del paso, lo que viste y el mensaje de la terminal.
 
 Tiempo estimado: 1 a 1,5 horas. Haz los pasos en orden: algunos usan lo que creaste en pasos anteriores.
 
@@ -85,15 +85,21 @@ Usaremos una **base de pruebas aparte** (`smartmind-pruebas.db`), así tu base r
 
 ## 6. Cancelar y re-agendar
 
-- [ ] **6.1** Abre la cita del paso 5 → **Cancelar cita** → motivo *El paciente canceló* → **Cancelar y re-agendar**.
-- [ ] **6.2** Se abre "Re-agendar cita" con horarios de la **misma duración** (45 min para limpieza).
-- [ ] **6.3** Elige uno y **Confirmar nuevo horario** → la cita aparece en el nuevo horario como *re-agendada*.
-- [ ] **6.4** Cancela otra cita y esta vez elige **Dejar en la cola** → el contador de **Re-agendamiento** en el menú sube.
+- [ ] **6.1** Abre cualquier cita futura → **Cancelar cita**: hay tres botones, **Volver**, **Solo cancelar** y **Cancelar y re-agendar**, con una explicación de cada uno.
+- [ ] **6.2** **Solo cancelar** → *Cita cancelada.* La cita queda cancelada y el paciente **no** aparece en **Re-agendamiento**.
+- [ ] **6.3** Abre la cita del paso 5 → **Cancelar cita** → **Cancelar y re-agendar** → se abre "Re-agendar cita" con horarios de la **misma duración** (45 min para limpieza).
+- [ ] **6.4** Arriba aparece **Su horario anterior (sigue libre)** con la fecha y hora que tenía. Elígelo → **Confirmar nuevo horario** → la cita vuelve exactamente a su horario (sirve si se canceló por error).
+- [ ] **6.5** Cancela otra cita con **Cancelar y re-agendar**. En **Otro día (todos sus horarios)** elige una fecha → aparecen **todos** los horarios libres de ese día. Si eliges un domingo → *La clínica no atiende ese día.*
+- [ ] **6.6** Elige un horario de ese día → **Confirmar nuevo horario** → la cita aparece allí como *re-agendada*.
+- [ ] **6.7** Cancela otra cita y esta vez elige **Dejar en la cola** → el contador de **Re-agendamiento** en el menú sube.
+- [ ] **6.8** Abre **Nueva cita** en dos pestañas del navegador, con el mismo odontólogo, día y hora pero pacientes distintos. Confirma primero en una y luego en la otra → la segunda muestra *Se cruza con otra cita (hh:mm–hh:mm)* y **no** muestra el nombre del otro paciente.
 
 ## 7. Cola de re-agendamiento
 
-- [ ] **7.1** Menú **Re-agendamiento**: se ven los pacientes pendientes con su cita original.
-- [ ] **7.2** **Proponer horarios a todos** → mensaje *N pacientes re-agendados* y la cola queda vacía.
+- [ ] **7.1** Menú **Re-agendamiento**: se ven los pacientes pendientes con su cita original y los botones **Quitar** y **Re-agendar**.
+- [ ] **7.2** **Quitar** en un paciente → explica que su cita queda cancelada → **Quitar de la cola** → sale de la lista.
+- [ ] **7.3** **Proponer horarios a todos** → primero explica qué va a hacer (horario anterior si sigue libre o, si no, el primero disponible) → **Re-agendar a todos**.
+- [ ] **7.4** Aparece **Resultado del re-agendamiento** con cada paciente, su nuevo día, hora, procedimiento y odontólogo. Los que no tienen cupo aparecen como *Sin cupo* y siguen en la cola.
 
 ## 8. Bloqueos
 
@@ -106,7 +112,7 @@ Usaremos una **base de pruebas aparte** (`smartmind-pruebas.db`), así tu base r
 ## 9. Emergencia
 
 - [ ] **9.1** En "Emergencia o imprevisto", elige un odontólogo y un día con citas → **Activar emergencia** → muestra cuántas citas se cancelarán.
-- [ ] **9.2** Confirma → **Re-agendar automáticamente** → mensaje *N pacientes re-agendados*.
+- [ ] **9.2** Confirma → **Re-agendar automáticamente** → aparece **Resultado del re-agendamiento** con el nuevo horario de cada paciente.
 - [ ] **9.3** En **Agenda**, ese día aparece completo como *Emergencia* y las citas se movieron a otros días.
 
 ## 10. Procedimientos
@@ -136,7 +142,7 @@ Usaremos una **base de pruebas aparte** (`smartmind-pruebas.db`), así tu base r
 - [ ] **12.3** Solo ve su cita del implante. El menú **no** muestra "Equipo y servicios".
 - [ ] **12.4** En **Procedimientos** ve las tarifas pero no puede editarlas. En **Automatizaciones** los interruptores están bloqueados.
 
-## 13. Desactivar un odontólogo
+## 13. Desactivar y eliminar
 
 1. Como **Dr. Juan**, abre su cita del implante → **Cancelar cita** → **Dejar en la cola**. Luego **Salir** y entra como **administrador**.
 
@@ -145,6 +151,17 @@ Usaremos una **base de pruebas aparte** (`smartmind-pruebas.db`), así tu base r
 - [ ] **13.3** **Salir** e intenta entrar con `juan@smartmind.co` → *Correo o contraseña incorrectos.*
 - [ ] **13.4** Entra como administrador y reactívalo → vuelve a aparecer en la página y puede entrar de nuevo.
 - [ ] **13.5** En **Re-agendamiento**, re-agenda al paciente del implante → la cita conserva sus 90 minutos.
+
+**Eliminar** (botón *Eliminar* dentro de cada formulario de **Equipo y servicios** y de **Procedimientos → Editar**). Antes de borrar, siempre muestra qué va a pasar.
+
+- [ ] **13.6** Agrega a `Dra. Temporal Prueba` (Odontología general, correo `temporal@smartmind.co`, contraseña `temporal123`), sin citas. **Editar → Eliminar** → la advertencia dice que se borrará su cuenta de acceso → **Eliminar definitivamente** → desaparece de la lista, de la página y de la agenda.
+- [ ] **13.7** Intenta entrar con `temporal@smartmind.co` → *Correo o contraseña incorrectos.*
+- [ ] **13.8** **Editar** a la **Dra. Sofía Arango → Eliminar** → *Todavía no se puede eliminar. Tiene N cita(s) programada(s)…* y solo aparece el botón **Volver**.
+- [ ] **13.9** En **Procedimientos**, crea `Procedimiento de prueba` (30 min) → **Editar → Eliminar → Eliminar definitivamente** → desaparece de la tabla y de la página de pacientes.
+- [ ] **13.10** **Valoración inicial → Editar → Eliminar** → bloqueado, porque hay citas programadas con ese procedimiento (la sugerencia es desactivarlo).
+- [ ] **13.11** **Especialidades → Ortodoncia → Editar → Eliminar** → bloqueado: *Dra. Sofía Arango quedaría sin especialidad.*
+- [ ] **13.12** Crea la especialidad `Odontopediatría` (con *Valoración inicial*) y un motivo `Mi hijo necesita revisión` que la recomiende. **Eliminar** la especialidad → avisa que se borrará 1 motivo → confírmalo → la especialidad y el motivo desaparecen.
+- [ ] **13.13** Un odontólogo o procedimiento que ya tuvo citas (por ejemplo, uno al que le cancelaste la única cita) también se puede eliminar: la advertencia dice que el historial se conserva con su nombre. Después de eliminarlo, no aparece en ninguna lista, pero las citas antiguas siguen mostrando su nombre.
 
 ## 14. Permisos de la Dra. Camila
 
@@ -162,7 +179,7 @@ El simulador usa el celular `570000000000`. Para simular a otro paciente, cambia
 
 ### 15.1 Menú e información
 
-- [ ] **a.** `hola` → saludo y menú con 5 opciones.
+- [ ] **a.** `hola` → saludo y menú con 5 opciones. Todos los mensajes del bot terminan con *Escribe menu o 0 para volver al menú principal.*
 - [ ] **b.** `xyz` → *No entendí tu respuesta* y vuelve a mostrar el menú.
 - [ ] **c.** `4` → tarifas de todos los procedimientos activos (incluye *Implante dental* si lo creaste en el paso 10).
 - [ ] **d.** `5` → equipo con especialidades, experiencia y descripción.
@@ -176,7 +193,8 @@ El simulador usa el celular `570000000000`. Para simular a otro paciente, cambia
 - [ ] **a.** Lista los motivos de "Equipo y servicios" y al final *Otro motivo / quiero elegir la especialidad*.
 - [ ] **b.** `1` (dolor fuerte) → *Para eso te recomiendo Endodoncia* y lista sus procedimientos con duración y precio. La valoración sale primero, marcada como *recomendada si es tu primera visita*.
 - [ ] **c.** `1` → *Te atenderá Dr. Andrés Villegas* (es el único endodoncista), 6 horarios, *Ver más horarios* y *Prefiero otra fecha*.
-- [ ] **d.** `ver mas` → horarios siguientes, distintos a los anteriores.
+- [ ] **d.** `ver mas` → *Más horarios libres*, distintos a los anteriores, con la opción nueva *Volver a los horarios anteriores*.
+- [ ] **d2.** Elige *Volver a los horarios anteriores* (o escribe `anteriores`) → vuelve la primera lista, igual que antes. Ve otra vez a `ver mas` para seguir.
 - [ ] **e.** `1` → pide el nombre completo. Escribe `12` → lo vuelve a pedir.
 - [ ] **f.** `lucía fernández` → resumen con *Lucía Fernández* (con mayúsculas), *30 min*, precio, odontólogo y fecha completa.
 - [ ] **g.** `quizás` → *No entendí*. Luego `sí` → *✅ ¡Listo! Tu cita quedó agendada.*
@@ -188,7 +206,7 @@ El simulador usa el celular `570000000000`. Para simular a otro paciente, cambia
 - [ ] **b.** Escribe `ortodoncia` (el nombre en vez del número) → también funciona.
 - [ ] **c.** Elige *Control de ortodoncia* → horarios con la Dra. Sofía Arango.
 - [ ] **d.** `otra fecha` → `domingo` → *la clínica no atiende*. `ayer` → *No entendí*.
-- [ ] **e.** Escribe `viernes` o una fecha como `15/11` → horarios libres de ese día.
+- [ ] **e.** Escribe `viernes` o una fecha como `15/11` → horarios libres de ese día, con las opciones *Otra fecha* y *Volver a la lista de horarios*.
 - [ ] **f.** Elige uno → como el bot ya conoce tu nombre, pasa directo a la confirmación.
 - [ ] **g.** `nombre` → escribe otro nombre (por ejemplo, para agendarle a un hijo) → la confirmación muestra el nuevo nombre.
 - [ ] **h.** `no` → vuelve a los horarios. Elige otro → `si` → agendada.
@@ -205,24 +223,25 @@ Requiere los pasos 11 y 13.4 (Dr. Juan Ortiz activo, especialidad Implantología
 ### 15.5 El bot recuerda al paciente
 
 - [ ] **a.** `hola` → *¡Hola, Lucía!* (o el último nombre con que agendaste).
-- [ ] **b.** `2` → lista tus citas programadas con fecha, procedimiento y odontólogo.
-- [ ] **c.** Cambia el celular del simulador a `570000000001` y escribe `hola` → saludo general (no conoce a ese paciente).
+- [ ] **b.** `2` → lista tus citas programadas con fecha, procedimiento, odontólogo y **de quién es cada una** (👤 nombre).
+- [ ] **c.** Si en el paso 15.3 g agendaste a otro nombre con el mismo celular, el título dice *Citas programadas con este número* y cada cita muestra su paciente.
+- [ ] **d.** Cambia el celular del simulador a `570000000001` y escribe `hola` → saludo general (no conoce a ese paciente).
 
 ### 15.6 Cambiar una cita
 
 Vuelve al celular `570000000000`.
 
-- [ ] **a.** `menu` → `3` → si tienes una sola cita, ofrece *Cambiar de horario* o *Cancelarla*; si tienes varias, pregunta cuál.
+- [ ] **a.** `menu` → `3` → si tienes una sola cita, ofrece *Cambiar de horario* o *Cancelarla*; si tienes varias, pregunta cuál. Cada cita muestra a qué paciente pertenece.
 - [ ] **b.** Cambiar → *Busquemos un nuevo horario con la misma duración* → horarios del **mismo** odontólogo.
 - [ ] **c.** Elige uno → *Confirma el nuevo horario* (no vuelve a pedir el nombre) → `dale` → *Tu cita quedó reprogramada*.
 - [ ] **d.** En el panel: la cita anterior está *Cancelada*, la nueva aparece como *re-agendada* con la misma duración, la campana dice *Cita cambiada por WhatsApp* y la cola de re-agendamiento no tiene a este paciente.
 
 ### 15.7 Cancelar una cita
 
-- [ ] **a.** `menu` → `3` → (elige la cita) → `2` → *¿Seguro…?* → `no` → *tu cita sigue en pie*.
-- [ ] **b.** Repite y responde `si` → *Tu cita fue cancelada* y pregunta si quieres un nuevo horario con la misma duración.
-- [ ] **c.** `si` → horarios → elige uno → `si` → reprogramada. En el panel el paciente **no** queda en la cola.
-- [ ] **d.** Agenda otra cita, cancélala y esta vez responde `no` al nuevo horario → *La clínica podrá contactarte*. En el panel el paciente aparece en **Re-agendamiento**.
+- [ ] **a.** `menu` → `3` → (elige la cita) → `2` → *¿Seguro que quieres cancelar la cita de **Nombre**…?* → `no` → *tu cita sigue en pie*.
+- [ ] **b.** Repite y responde `si` → *La cita de **Nombre** fue cancelada* y pregunta si quieres un nuevo horario con la misma duración.
+- [ ] **c.** `si` → el **primer** horario es el que tenía, marcado *(tu horario anterior)* (sirve si canceló por error). Elígelo → `si` → reprogramada en el mismo horario. En el panel el paciente **no** queda en la cola.
+- [ ] **d.** Agenda otra cita, cancélala y esta vez responde `no` al nuevo horario → *tu cita quedó cancelada*. En el panel la cita está cancelada y el paciente **no** aparece en **Re-agendamiento** (solo quería cancelar).
 
 ### 15.8 Dos personas quieren el mismo horario
 

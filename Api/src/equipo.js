@@ -129,7 +129,7 @@ const guardarProcedimiento = db.transaction((id, p) => {
   if (!Number.isInteger(duracion) || duracion < HORARIO.paso || duracion > 240 || duracion % HORARIO.paso) return { error: 'La duración debe ser múltiplo de 15 (entre 15 y 240 min).' };
   if (!Number.isFinite(precio) || precio < 0) return { error: 'La tarifa no es válida.' };
   if (id && !existe('procedimientos', id)) return { error: 'El procedimiento no existe.' };
-  if (db.prepare('SELECT 1 FROM procedimientos WHERE lower(nombre) = lower(?) AND id IS NOT ?').get(nombre, id)) return { error: 'Ya existe un procedimiento con ese nombre.' };
+  if (db.prepare('SELECT 1 FROM procedimientos WHERE lower(nombre) = lower(?) AND id IS NOT ? AND eliminado = 0').get(nombre, id)) return { error: 'Ya existe un procedimiento con ese nombre.' };
   const esp = Array.isArray(p.especialidades) ? lista(p.especialidades) : null;
   const desconocida = esp?.find(e => !existe('especialidades', e));
   if (desconocida) return { error: `La especialidad "${desconocida}" no existe.` };
@@ -174,4 +174,98 @@ const guardarMotivo = db.transaction((id, m) => {
 
 const eliminarMotivo = id => db.prepare('DELETE FROM motivos WHERE id = ?').run(id).changes > 0;
 
-module.exports = { equipo, guardarDoctor, guardarEspecialidad, guardarProcedimiento, guardarMotivo, eliminarMotivo };
+
+/* ---------- Eliminar ---------- */
+// Antes de eliminar, el panel muestra qué pasará:
+//   bloqueo → no se puede eliminar todavía (y por qué)
+//   avisos  → lo que se va a borrar o cambiar
+//   archivar → tiene historial de citas: se oculta de todas las listas pero el historial conserva su nombre
+const contar = (sql, ...args) => db.prepare(sql).get(...args).n;
+const vivo = (tabla, id) => !!db.prepare(`SELECT 1 FROM ${tabla} WHERE id = ? AND eliminado = 0`).get(id);
+
+function impacto(tipo, id) {
+  const hoy = hoyISO();
+  const avisos = [];
+
+  if (tipo === 'doctor') {
+    if (!vivo('doctores', id)) return { error: 'El odontólogo no existe.' };
+    const futuras = contar(`SELECT COUNT(*) n FROM citas WHERE doctor_id = ? AND estado = 'programada' AND fecha >= ?`, id, hoy);
+    const enCola = contar('SELECT COUNT(*) n FROM cola WHERE doctor_id = ?', id);
+    const historial = contar('SELECT COUNT(*) n FROM citas WHERE doctor_id = ?', id);
+    const bloqueos = contar('SELECT COUNT(*) n FROM bloqueos WHERE doctor_id = ?', id);
+    const cuenta = db.prepare('SELECT correo FROM usuarios WHERE doctor_id = ?').get(id);
+    let bloqueo = null;
+    if (futuras) bloqueo = `Tiene ${futuras} cita(s) programada(s). Cancélalas primero, desde la Agenda o activando una emergencia en sus días.`;
+    else if (enCola) bloqueo = `Tiene ${enCola} paciente(s) esperando nuevo horario en Re-agendamiento. Re-agéndalos o quítalos de la cola primero.`;
+    if (cuenta) avisos.push(`Se borrará su cuenta de acceso (${cuenta.correo}).`);
+    if (bloqueos) avisos.push(`Se borrarán ${bloqueos} bloqueo(s) de su agenda.`);
+    if (historial) avisos.push(`Tiene ${historial} cita(s) en el historial: se conservan con su nombre, pero el odontólogo desaparece de todas las listas.`);
+    return { bloqueo, avisos, archivar: historial > 0 };
+  }
+
+  if (tipo === 'procedimiento') {
+    if (!vivo('procedimientos', id)) return { error: 'El procedimiento no existe.' };
+    const futuras = contar(`SELECT COUNT(*) n FROM citas WHERE proc = ? AND estado = 'programada' AND fecha >= ?`, id, hoy);
+    const enCola = contar('SELECT COUNT(*) n FROM cola WHERE proc = ?', id);
+    const historial = contar('SELECT COUNT(*) n FROM citas WHERE proc = ?', id);
+    let bloqueo = null;
+    if (futuras) bloqueo = `Hay ${futuras} cita(s) programada(s) con este procedimiento. Desactívalo para que no se ofrezca más y elimínalo cuando ya no tenga citas pendientes.`;
+    else if (enCola) bloqueo = `Hay ${enCola} paciente(s) con este procedimiento esperando nuevo horario en Re-agendamiento.`;
+    const solas = db.prepare(`SELECT e.nombre FROM especialidad_procs ep JOIN especialidades e ON e.id = ep.especialidad_id
+      WHERE ep.proc_id = ? AND (SELECT COUNT(*) FROM especialidad_procs x JOIN procedimientos p ON p.id = x.proc_id
+        WHERE x.especialidad_id = ep.especialidad_id AND p.eliminado = 0) = 1`).all(id);
+    solas.forEach(e => avisos.push(`La especialidad "${e.nombre}" quedará sin procedimientos.`));
+    if (historial) avisos.push(`Tiene ${historial} cita(s) en el historial: se conservan con su nombre, pero el procedimiento desaparece de todas las listas.`);
+    return { bloqueo, avisos, archivar: historial > 0 };
+  }
+
+  if (tipo === 'especialidad') {
+    if (!existe('especialidades', id)) return { error: 'La especialidad no existe.' };
+    // Odontólogos que se quedarían sin ninguna especialidad.
+    const sinOtra = db.prepare(`SELECT d.nombre FROM doctor_especialidades de JOIN doctores d ON d.id = de.doctor_id
+      WHERE de.especialidad_id = ? AND d.eliminado = 0
+        AND (SELECT COUNT(*) FROM doctor_especialidades x WHERE x.doctor_id = d.id) = 1`).all(id);
+    const conElla = contar(`SELECT COUNT(*) n FROM doctor_especialidades de JOIN doctores d ON d.id = de.doctor_id WHERE de.especialidad_id = ? AND d.eliminado = 0`, id);
+    const motivos = contar('SELECT COUNT(*) n FROM motivos WHERE especialidad_id = ?', id);
+    const bloqueo = sinOtra.length
+      ? `${sinOtra.map(d => d.nombre).join(', ')} quedaría(n) sin especialidad. Asígnale(s) otra primero.`
+      : null;
+    if (conElla) avisos.push(`Se quitará de ${conElla} odontólogo(s).`);
+    if (motivos) avisos.push(`Se borrarán ${motivos} motivo(s) de consulta que recomiendan esta especialidad.`);
+    avisos.push('Los procedimientos no se borran; solo dejan de estar en esta especialidad.');
+    return { bloqueo, avisos, archivar: false };
+  }
+
+  if (tipo === 'motivo') {
+    if (!db.prepare('SELECT 1 FROM motivos WHERE id = ?').get(id)) return { error: 'El motivo no existe.' };
+    return { bloqueo: null, avisos: ['Dejará de aparecer en la página de pacientes y en el chatbot.'], archivar: false };
+  }
+  return { error: 'Tipo no válido.' };
+}
+
+const eliminar = db.transaction((tipo, id) => {
+  const i = impacto(tipo, id);
+  if (i.error) return i;
+  if (i.bloqueo) return { error: i.bloqueo };
+
+  if (tipo === 'doctor') {
+    db.prepare('DELETE FROM usuarios WHERE doctor_id = ?').run(id);
+    db.prepare('DELETE FROM bloqueos WHERE doctor_id = ?').run(id);
+    db.prepare('DELETE FROM doctor_especialidades WHERE doctor_id = ?').run(id);
+    if (i.archivar) db.prepare('UPDATE doctores SET activo = 0, eliminado = 1 WHERE id = ?').run(id);
+    else db.prepare('DELETE FROM doctores WHERE id = ?').run(id);
+  }
+  if (tipo === 'procedimiento') {
+    db.prepare('DELETE FROM especialidad_procs WHERE proc_id = ?').run(id);
+    if (i.archivar) db.prepare('UPDATE procedimientos SET activo = 0, eliminado = 1 WHERE id = ?').run(id);
+    else db.prepare('DELETE FROM procedimientos WHERE id = ?').run(id);
+  }
+  if (tipo === 'especialidad') {
+    db.prepare('DELETE FROM motivos WHERE especialidad_id = ?').run(id);
+    db.prepare('DELETE FROM especialidades WHERE id = ?').run(id);
+  }
+  if (tipo === 'motivo') eliminarMotivo(id);
+  return { ok: true, archivado: i.archivar };
+});
+
+module.exports = { equipo, guardarDoctor, guardarEspecialidad, guardarProcedimiento, guardarMotivo, eliminarMotivo, impacto, eliminar };

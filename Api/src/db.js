@@ -175,6 +175,10 @@ const vacia = tabla => !db.prepare(`SELECT COUNT(*) n FROM ${tabla}`).get().n;
 if (!columnas('procedimientos').includes('activo')) {
   db.exec('ALTER TABLE procedimientos ADD COLUMN activo INTEGER NOT NULL DEFAULT 1');
 }
+// "eliminado": se borró desde el panel pero tiene citas en el historial, así que se oculta de todas las listas.
+for (const tabla of ['doctores', 'procedimientos']) {
+  if (!columnas(tabla).includes('eliminado')) db.exec(`ALTER TABLE ${tabla} ADD COLUMN eliminado INTEGER NOT NULL DEFAULT 0`);
+}
 
 // Carga los datos iniciales solo en tablas vacías: después todo se administra desde el panel.
 function sembrar() {
