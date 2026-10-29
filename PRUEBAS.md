@@ -59,6 +59,14 @@ Usaremos una **base de pruebas aparte** (`smartmind-pruebas.db`), así tu base r
 - [ ] **2.3** Recarga la página (F5) → sigues dentro del panel.
 - [ ] **2.4** Clic en **Salir** → vuelves a la página de pacientes. Vuelve a entrar como administrador para seguir.
 
+**Cambio de contraseña** (hazlo con la Dra. Camila para no olvidar la del administrador):
+
+- [ ] **2.5** Entra como `camila@smartmind.co` en **dos navegadores** (por ejemplo, el normal y una ventana de incógnito).
+- [ ] **2.6** En el primero, clic en **Cambiar contraseña** (arriba, junto al nombre). Con una contraseña actual equivocada → *La contraseña actual no es correcta.* Con una nueva de menos de 8 caracteres, o si la confirmación no coincide, también muestra el error.
+- [ ] **2.7** Cambia a `camila2026` → *Contraseña cambiada…*. Recarga (F5): sigues dentro.
+- [ ] **2.8** En el **segundo navegador**, intenta hacer cualquier cosa → *Tu sesión expiró. Vuelve a ingresar.* La contraseña `demo1234` ya no entra; `camila2026` sí.
+- [ ] **2.9** Como **administrador**, en **Equipo y servicios → Dra. Camila Restrepo → Editar**, escribe una **Nueva contraseña** (por ejemplo `demo1234`) y guarda. Si la Dra. Camila tenía la sesión abierta, se le cierra. Con esto vuelve a la contraseña de la guía para los pasos siguientes.
+
 ## 3. Resumen
 
 - [ ] **3.1** Las estadísticas muestran números (asistidas, canceladas, inasistencias, programadas, tasa y ocupación).

@@ -53,6 +53,7 @@ Con sesión (`Authorization: Bearer <token>`). Un odontólogo solo ve y modifica
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/api/auth/me` | Usuario actual |
+| PUT | `/api/auth/clave` | `{actual, nueva}` → `{token}` nuevo; cierra las demás sesiones del usuario |
 | GET | `/api/doctores` | Odontólogos visibles |
 | GET / PUT | `/api/catalogo` | Procedimientos; PUT `{val: {duracion, precio}}` solo admin |
 | GET | `/api/disponibilidad?doctor&proc&fecha` | Horas libres del día |

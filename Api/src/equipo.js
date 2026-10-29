@@ -82,7 +82,8 @@ const guardarDoctor = db.transaction((id, d) => {
 
   if (cuenta) {
     if (correo) db.prepare('UPDATE usuarios SET correo = ?, nombre = ? WHERE id = ?').run(correo, nombre, cuenta.id);
-    if (clave) db.prepare('UPDATE usuarios SET clave_hash = ? WHERE id = ?').run(cifrarClave(clave), cuenta.id);
+    // Contraseña asignada por el administrador: el odontólogo debe volver a iniciar sesión.
+    if (clave) db.prepare('UPDATE usuarios SET clave_hash = ?, sesion_version = sesion_version + 1 WHERE id = ?').run(cifrarClave(clave), cuenta.id);
   } else if (correo) {
     db.prepare(`INSERT INTO usuarios (nombre, correo, clave_hash, rol, doctor_id) VALUES (?, ?, ?, 'odontologo', ?)`)
       .run(nombre, correo, cifrarClave(clave), id);

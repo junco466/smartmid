@@ -17,7 +17,9 @@ const COLS_USUARIO = 'u.id, u.nombre, u.correo, u.rol, u.doctor_id AS doctorId';
 const ACTIVO = 'LEFT JOIN doctores d ON d.id = u.doctor_id WHERE (u.doctor_id IS NULL OR d.activo = 1)';
 const usuarioPor = id => db.prepare(`SELECT ${COLS_USUARIO} FROM usuarios u ${ACTIVO} AND u.id = ?`).get(id);
 
-const emitirToken = u => jwt.sign({ sub: String(u.id), rol: u.rol }, SECRETO, { expiresIn: DURACION_SESION });
+// Cada cambio de contraseña sube la versión de sesión: los tokens emitidos antes dejan de servir.
+const versionSesion = id => db.prepare('SELECT sesion_version FROM usuarios WHERE id = ?').get(id)?.sesion_version ?? 0;
+const emitirToken = u => jwt.sign({ sub: String(u.id), rol: u.rol, v: versionSesion(u.id) }, SECRETO, { expiresIn: DURACION_SESION });
 
 function login(correo, clave) {
   const fila = db.prepare(`SELECT u.id, u.clave_hash FROM usuarios u ${ACTIVO} AND u.correo = ?`).get(String(correo || '').trim().toLowerCase());
@@ -50,11 +52,24 @@ function leerUsuario(req) {
   const [tipo, token] = String(req.headers.authorization || '').split(' ');
   if (tipo !== 'Bearer' || !token) return null;
   try {
-    const { sub } = jwt.verify(token, SECRETO);
+    const { sub, v = 0 } = jwt.verify(token, SECRETO);
+    if (v !== versionSesion(Number(sub))) return null; // la contraseña cambió después de emitir este token
     return usuarioPor(Number(sub)) || null;
   } catch (e) {
     return null;
   }
+}
+
+// El usuario cambia su propia contraseña. Cierra sus demás sesiones y devuelve un token nuevo para esta.
+function cambiarClave(id, actual, nueva) {
+  const fila = db.prepare('SELECT clave_hash FROM usuarios WHERE id = ?').get(id);
+  if (!fila) return { error: 'La cuenta no existe.' };
+  if (!verificarClave(actual, fila.clave_hash)) return { error: 'La contraseña actual no es correcta.' };
+  nueva = String(nueva || '');
+  if (nueva.length < 8) return { error: 'La nueva contraseña debe tener al menos 8 caracteres.' };
+  if (nueva === actual) return { error: 'La nueva contraseña debe ser distinta de la actual.' };
+  db.prepare('UPDATE usuarios SET clave_hash = ?, sesion_version = sesion_version + 1 WHERE id = ?').run(cifrarClave(nueva), id);
+  return { token: emitirToken(usuarioPor(id)) };
 }
 
 // Middleware: exige una sesión válida y deja el usuario en req.usuario.
@@ -81,4 +96,4 @@ function alcance(req, doctorPedido) {
 // ¿Puede el usuario actuar sobre la agenda de este odontólogo?
 const puedeVer = (req, doctor) => esAdmin(req) || (!!doctor && doctor === req.usuario.doctorId);
 
-module.exports = { login, registrar, leerUsuario, requiereSesion, requiereAdmin, esAdmin, alcance, puedeVer };
+module.exports = { login, registrar, cambiarClave, leerUsuario, requiereSesion, requiereAdmin, esAdmin, alcance, puedeVer };

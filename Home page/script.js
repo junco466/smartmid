@@ -262,6 +262,46 @@ function salir() {
   renderSesion();
 }
 
+// ¿El token está guardado de forma permanente ("mantener la sesión iniciada")?
+function sesionRecordada() {
+  try { return !!localStorage.getItem(CLAVE_TOKEN); } catch (e) { return false; }
+}
+
+function abrirCambiarClave() {
+  abrirModal({
+    titulo: 'Cambiar contraseña',
+    cuerpo: `<p class="card-sub">${esc(usuario.nombre)} · ${esc(usuario.correo)}</p>
+      <div class="field"><label for="clave-actual">Contraseña actual</label><input type="password" id="clave-actual" autocomplete="current-password"></div>
+      <div class="field-row">
+        <div class="field"><label for="clave-nueva">Nueva contraseña</label><input type="password" id="clave-nueva" autocomplete="new-password"></div>
+        <div class="field"><label for="clave-confirmar">Confirmar nueva contraseña</label><input type="password" id="clave-confirmar" autocomplete="new-password"></div>
+      </div>
+      <p class="field-hint">Mínimo 8 caracteres. Al cambiarla se cerrará tu sesión en los demás equipos.</p>
+      <p class="form-error" id="clave-error" role="alert" hidden></p>`,
+    acciones: [
+      { texto: 'Cancelar', accion: cerrarModal },
+      { texto: 'Cambiar contraseña', clase: 'btn-primary', accion: async () => {
+        const error = $('#clave-error');
+        const actual = $('#clave-actual').value, nueva = $('#clave-nueva').value;
+        if (!actual) return mostrarError(error, 'Escribe tu contraseña actual.');
+        if (nueva.length < 8) return mostrarError(error, 'La nueva contraseña debe tener al menos 8 caracteres.');
+        if (nueva !== $('#clave-confirmar').value) return mostrarError(error, 'Las contraseñas nuevas no coinciden.');
+        try {
+          const r = await api('/auth/clave', { metodo: 'PUT', cuerpo: { actual, nueva } });
+          // El token anterior dejó de servir: se guarda el nuevo donde estaba el anterior.
+          token = r.token;
+          guardarToken(token, sesionRecordada());
+        } catch (e) {
+          return mostrarError(error, e.message);
+        }
+        cerrarModal();
+        toast('Contraseña cambiada. Se cerró tu sesión en los demás equipos.', 'ok');
+      } }
+    ]
+  });
+  $('#clave-actual').focus();
+}
+
 function cerrarSesion() {
   salir();
   irA('paciente');
@@ -1445,6 +1485,7 @@ $('#form-registro').addEventListener('submit', e => {
 
 // Sesión y notificaciones
 $('#btn-salir').addEventListener('click', cerrarSesion);
+$('#btn-clave').addEventListener('click', abrirCambiarClave);
 $('#btn-notificaciones').addEventListener('click', e => {
   e.stopPropagation();
   mostrarPanelNotif($('#panel-notificaciones').hidden);

@@ -56,6 +56,13 @@ router.use(requiereSesion);
 
 router.get('/auth/me', (req, res) => res.json({ usuario: req.usuario }));
 
+// Cuerpo: { actual, nueva }. Devuelve { token } nuevo; las demás sesiones del usuario se cierran.
+router.put('/auth/clave', (req, res) => {
+  const r = auth.cambiarClave(req.usuario.id, req.body?.actual, req.body?.nueva);
+  if (r.error) return fallo(res, r.error);
+  res.json(r);
+});
+
 
 /* ---------- Odontólogos y catálogo ---------- */
 router.get('/doctores', (req, res) => {

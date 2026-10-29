@@ -191,7 +191,9 @@ En cada ventana presiona **Ctrl + C**. Primero ngrok y luego el servidor. Los da
 
 - [ ] Define `WHAPI_WEBHOOK_SECRET` y actualiza la URL del webhook en Whapi (paso 5).
 - [ ] Deja `REGISTRO_ABIERTO=false`.
-- [ ] Cambia las contraseñas de las cuentas de prueba. Las de los odontólogos se cambian en **Equipo y servicios → Editar**. La del administrador (`admin@smartmind.co` / `admin1234`) todavía no se puede cambiar desde el panel: está pendiente.
+- [ ] Cambia la contraseña del administrador (`admin@smartmind.co` / `admin1234`): entra con esa cuenta y usa **Cambiar contraseña**, arriba junto al nombre. Guárdala en un lugar seguro: si la olvidas, nadie más puede restablecerla desde el panel.
+- [ ] Cambia la de la cuenta de prueba `camila@smartmind.co` (o elimínala). El administrador asigna contraseñas a los odontólogos en **Equipo y servicios → Editar → Nueva contraseña**, y cada odontólogo puede cambiar la suya con **Cambiar contraseña**.
+- [ ] Cuando alguien cambia su contraseña, o el administrador le asigna una, se cierran sus sesiones abiertas en otros equipos.
 - [ ] Haz copias de seguridad de `Api\smartmind.db` con el servidor apagado; ese archivo es toda la información de la clínica.
 - [ ] Recuerda que, mientras ngrok esté encendido, el panel es accesible desde internet.
 
