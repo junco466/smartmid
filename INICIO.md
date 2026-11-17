@@ -55,7 +55,6 @@ WHAPI_TOKEN=el_token_de_tu_canal_de_whapi
 PORT=3000
 JWT_SECRET=un_texto_largo_y_aleatorio
 WHATSAPP_NUMERO=573144914328
-REGISTRO_ABIERTO=false
 # Opcional pero recomendado (ver paso 5):
 WHAPI_WEBHOOK_SECRET=
 ```
@@ -66,7 +65,6 @@ WHAPI_WEBHOOK_SECRET=
 | `PORT` | Puerto del servidor. Si no lo pones, es el 3000. ngrok debe usar el **mismo**. |
 | `JWT_SECRET` | Firma las sesiones del panel. Ya se generó uno en tu `.env`. Si lo cambias, todos tienen que volver a iniciar sesión. |
 | `WHATSAPP_NUMERO` | El número del bot, con 57 y sin `+`. Lo usan los botones "Escribir por WhatsApp" de la página. |
-| `REGISTRO_ABIERTO` | `true` permite que cualquiera cree una cuenta de odontólogo desde la página. Déjalo en `false`. |
 | `WHAPI_WEBHOOK_SECRET` | Si lo defines, solo se aceptan los mensajes que traigan ese secreto en la URL (evita mensajes falsos). |
 
 Para generar un `JWT_SECRET` nuevo:
@@ -190,7 +188,6 @@ En cada ventana presiona **Ctrl + C**. Primero ngrok y luego el servidor. Los da
 ## 10. Antes de usarlo con pacientes reales
 
 - [ ] Define `WHAPI_WEBHOOK_SECRET` y actualiza la URL del webhook en Whapi (paso 5).
-- [ ] Deja `REGISTRO_ABIERTO=false`.
 - [ ] Cambia la contraseña del administrador (`admin@smartmind.co` / `admin1234`): entra con esa cuenta y usa **Cambiar contraseña**, arriba junto al nombre. Guárdala en un lugar seguro: si la olvidas, nadie más puede restablecerla desde el panel.
 - [ ] Cambia la de la cuenta de prueba `camila@smartmind.co` (o elimínala). El administrador asigna contraseñas a los odontólogos en **Equipo y servicios → Editar → Nueva contraseña**, y cada odontólogo puede cambiar la suya con **Cambiar contraseña**.
 - [ ] Cuando alguien cambia su contraseña, o el administrador le asigna una, se cierran sus sesiones abiertas en otros equipos.

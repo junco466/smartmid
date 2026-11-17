@@ -326,24 +326,7 @@ function renderSesion() {
     $('#user-avatar').textContent = iniciales(usuario.nombre);
   }
   $('#link-equipo').hidden = !esAdmin();
-  // Especialidades del formulario de registro (salen de la base de datos).
-  const selEsp = $('#reg-especialidad');
-  const actual = selEsp.value;
-  selEsp.innerHTML = Object.entries(ESPECIALIDADES).map(([id, e]) => `<option value="${esc(id)}">${esc(e.nombre)}</option>`).join('');
-  if (ESPECIALIDADES[actual]) selEsp.value = actual;
   renderNotifs();
-}
-
-function cambiarTabAcceso(cual) {
-  const login = cual === 'login';
-  $('#tab-login').setAttribute('aria-selected', String(login));
-  $('#tab-registro').setAttribute('aria-selected', String(!login));
-  $('#form-login').hidden = !login;
-  $('#form-registro').hidden = login;
-}
-
-function actualizarRolRegistro() {
-  $('#reg-esp-campo').hidden = $('#reg-rol').value !== 'odontologo';
 }
 
 function mostrarError(el, mensaje) {
@@ -1415,20 +1398,7 @@ document.addEventListener('click', e => {
 
   const filtro = t.closest('[data-filtro]');
   if (filtro) { ui.filtroNotif = filtro.dataset.filtro; renderNotifs(); return; }
-
-  const demo = t.closest('[data-demo]');
-  if (demo) {
-    const [correo, clave] = demo.dataset.demo.split('|');
-    $('#login-correo').value = correo;
-    $('#login-clave').value = clave;
-    return;
-  }
 });
-
-// Acceso: pestañas
-$('#tab-login').addEventListener('click', () => cambiarTabAcceso('login'));
-$('#tab-registro').addEventListener('click', () => cambiarTabAcceso('registro'));
-$('#reg-rol').addEventListener('change', actualizarRolRegistro);
 
 // Inicio de sesión
 $('#form-login').addEventListener('submit', e => {
@@ -1446,37 +1416,6 @@ $('#form-login').addEventListener('submit', e => {
       error.hidden = true;
       form.reset();
       await iniciarSesion(r, recordar);
-    } catch (err) {
-      mostrarError(error, err.message);
-    }
-  });
-});
-
-// Registro
-$('#form-registro').addEventListener('submit', e => {
-  e.preventDefault();
-  const form = e.currentTarget;
-  const error = $('#reg-error');
-  const nombre = $('#reg-nombre').value.trim();
-  const correo = $('#reg-correo').value.trim().toLowerCase();
-  const rol = $('#reg-rol').value;
-  const especialidad = $('#reg-especialidad').value;
-  const clave = $('#reg-clave').value;
-
-  if (nombre.length < 5) return mostrarError(error, 'Escribe tu nombre completo.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return mostrarError(error, 'El correo no es válido.');
-  if (clave.length < 8) return mostrarError(error, 'La contraseña debe tener al menos 8 caracteres.');
-  if (clave !== $('#reg-confirmar').value) return mostrarError(error, 'Las contraseñas no coinciden.');
-  if (!$('#reg-terminos').checked) return mostrarError(error, 'Debes aceptar el tratamiento de datos.');
-
-  conBotonOcupado(form, async () => {
-    try {
-      const r = await api('/auth/registro', { metodo: 'POST', cuerpo: { nombre, correo, clave, rol, especialidad } });
-      error.hidden = true;
-      form.reset();
-      actualizarRolRegistro();
-      cambiarTabAcceso('login');
-      await iniciarSesion(r, true);
     } catch (err) {
       mostrarError(error, err.message);
     }
@@ -1634,7 +1573,6 @@ $$('[data-config]').forEach(input => input.addEventListener('change', async () =
    12. INICIO
    --------------------------------------------------------- */
 async function iniciar() {
-  actualizarRolRegistro();
   try {
     await cargarPublico();
   } catch (e) {

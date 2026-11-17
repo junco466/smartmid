@@ -565,15 +565,7 @@ textarea { min-height: 84px; padding: 10px 12px; resize: vertical; line-height: 
 .auth-points { display: flex; flex-direction: column; gap: 14px; }
 .auth-card { padding: 40px; }
 .auth-title { margin-bottom: 4px; font-size: 1.4rem; }
-
-.tabs { display: flex; gap: 4px; margin-bottom: 28px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
-.tab { flex: 1; padding: 10px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 600; transition: background .2s, color .2s; }
-.tab[aria-selected="true"] { background: #fff; color: var(--heading); box-shadow: var(--shadow-sm); }
-
-.hint { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 20px; padding: 14px 16px; border: 1px dashed #BDEFF1; border-radius: 12px; background: var(--tint); font-size: .85rem; }
-.hint strong { color: var(--heading); }
-.hint-btn { padding: 2px 0; border: 0; background: none; color: var(--teal-600); text-align: left; font-size: .85rem; }
-.hint-btn:hover { text-decoration: underline; }
+.auth-nota { margin-top: 16px; text-align: center; font-size: .85rem; color: var(--muted); }
 
 /* ---------- 11. Panel del odontólogo ---------- */
 .panel-layout { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 28px; align-items: start; }

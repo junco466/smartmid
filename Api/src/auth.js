@@ -2,7 +2,6 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
-const equipo = require('./equipo');
 const { cifrarClave, verificarClave } = require('./claves');
 
 let SECRETO = process.env.JWT_SECRET;
@@ -26,26 +25,6 @@ function login(correo, clave) {
   if (!fila || !verificarClave(clave, fila.clave_hash)) return null;
   const usuario = usuarioPor(fila.id);
   return { token: emitirToken(usuario), usuario };
-}
-
-// Crea la cuenta y, si es odontólogo, también su perfil en la agenda.
-function registrar({ nombre, correo, clave, rol, especialidad }) {
-  nombre = String(nombre || '').trim();
-  correo = String(correo || '').trim().toLowerCase();
-  if (nombre.length < 5) return { error: 'Escribe el nombre completo.' };
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { error: 'El correo no es válido.' };
-  if (String(clave || '').length < 8) return { error: 'La contraseña debe tener al menos 8 caracteres.' };
-  if (!['admin', 'odontologo'].includes(rol)) return { error: 'Rol no válido.' };
-  if (db.prepare('SELECT 1 FROM usuarios WHERE correo = ?').get(correo)) return { error: 'Ya existe una cuenta con ese correo.' };
-
-  if (rol === 'odontologo') {
-    const r = equipo.guardarDoctor(null, { nombre, especialidades: [especialidad], correo, clave, bio: 'Nuevo integrante del equipo de la clínica.' });
-    if (r.error) return r;
-  } else {
-    db.prepare(`INSERT INTO usuarios (nombre, correo, clave_hash, rol) VALUES (?, ?, ?, 'admin')`).run(nombre, correo, cifrarClave(clave));
-  }
-  const { id } = db.prepare('SELECT id FROM usuarios WHERE correo = ?').get(correo);
-  return { usuario: usuarioPor(id) };
 }
 
 function leerUsuario(req) {
@@ -96,4 +75,4 @@ function alcance(req, doctorPedido) {
 // ¿Puede el usuario actuar sobre la agenda de este odontólogo?
 const puedeVer = (req, doctor) => esAdmin(req) || (!!doctor && doctor === req.usuario.doctorId);
 
-module.exports = { login, registrar, cambiarClave, leerUsuario, requiereSesion, requiereAdmin, esAdmin, alcance, puedeVer };
+module.exports = { login, cambiarClave, leerUsuario, requiereSesion, requiereAdmin, esAdmin, alcance, puedeVer };

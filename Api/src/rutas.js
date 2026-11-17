@@ -36,22 +36,6 @@ router.post('/auth/login', (req, res) => {
   res.json(r);
 });
 
-// Solo el administrador crea cuentas, salvo que REGISTRO_ABIERTO=true
-// (en ese caso cualquiera puede crear una cuenta de odontólogo, nunca de administrador).
-router.post('/auth/registro', (req, res) => {
-  const usuario = auth.leerUsuario(req);
-  const abierto = process.env.REGISTRO_ABIERTO === 'true';
-  const datos = { ...req.body };
-  if (usuario?.rol !== 'admin') {
-    if (!abierto) return fallo(res, 'Pide al administrador de la clínica que cree tu cuenta.', 403);
-    datos.rol = 'odontologo';
-  }
-  const r = auth.registrar(datos);
-  if (r.error) return fallo(res, r.error);
-  // Si se registró solo, queda con la sesión iniciada.
-  res.status(201).json(usuario ? r : auth.login(datos.correo, datos.clave));
-});
-
 router.use(requiereSesion);
 
 router.get('/auth/me', (req, res) => res.json({ usuario: req.usuario }));

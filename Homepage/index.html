@@ -180,7 +180,7 @@
 
 
   <!-- =====================================================
-       VISTA 2 · ACCESO (inicio de sesión y registro)
+       VISTA 2 · ACCESO (inicio de sesión)
        ===================================================== -->
   <div class="view" id="vista-acceso" data-vista="acceso" hidden>
     <div class="container">
@@ -197,13 +197,8 @@
         </aside>
 
         <section class="auth-card" aria-label="Acceso al panel">
-          <div class="tabs" role="tablist" aria-label="Tipo de acceso">
-            <button type="button" class="tab" role="tab" id="tab-login" aria-selected="true" aria-controls="form-login">Ingresar</button>
-            <button type="button" class="tab" role="tab" id="tab-registro" aria-selected="false" aria-controls="form-registro">Crear cuenta</button>
-          </div>
-
           <!-- Inicio de sesión -->
-          <form id="form-login" role="tabpanel" aria-labelledby="tab-login" novalidate>
+          <form id="form-login" novalidate>
             <h2 class="auth-title">Bienvenido de nuevo</h2>
             <p class="card-sub">Ingresa para gestionar tu agenda.</p>
             <div class="field"><label for="login-correo">Correo electrónico</label><input type="email" id="login-correo" autocomplete="email" placeholder="nombre@clinica.co" required></div>
@@ -211,37 +206,7 @@
             <label class="check"><input type="checkbox" id="login-recordar" checked> Mantener la sesión iniciada</label>
             <p class="form-error" id="login-error" role="alert" hidden></p>
             <button type="submit" class="btn btn-primary btn-block">Ingresar al panel</button>
-            <div class="hint">
-              <strong>Cuentas de prueba (toca para llenar)</strong>
-              <button type="button" class="hint-btn" data-demo="camila@smartmind.co|demo1234">Odontóloga · camila@smartmind.co · demo1234</button>
-              <button type="button" class="hint-btn" data-demo="admin@smartmind.co|admin1234">Administrador · admin@smartmind.co · admin1234</button>
-            </div>
-          </form>
-
-          <!-- Registro -->
-          <form id="form-registro" role="tabpanel" aria-labelledby="tab-registro" novalidate hidden>
-            <h2 class="auth-title">Crea tu cuenta</h2>
-            <p class="card-sub">Para odontólogos y personal administrativo de la clínica. Si el registro está cerrado, pide al administrador que cree tu cuenta.</p>
-            <div class="field"><label for="reg-nombre">Nombre completo</label><input type="text" id="reg-nombre" autocomplete="name" placeholder="Ej.: Dra. María López" required></div>
-            <div class="field"><label for="reg-correo">Correo electrónico</label><input type="email" id="reg-correo" autocomplete="email" placeholder="nombre@clinica.co" required></div>
-            <div class="field-row">
-              <div class="field">
-                <label for="reg-rol">Rol</label>
-                <select id="reg-rol"><option value="odontologo">Odontólogo</option><option value="admin">Administrador de la clínica</option></select>
-              </div>
-              <div class="field" id="reg-esp-campo">
-                <label for="reg-especialidad">Especialidad</label>
-                <select id="reg-especialidad"><!-- Generado por script.js --></select>
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="reg-clave">Contraseña</label><input type="password" id="reg-clave" autocomplete="new-password" required></div>
-              <div class="field"><label for="reg-confirmar">Confirmar contraseña</label><input type="password" id="reg-confirmar" autocomplete="new-password" required></div>
-            </div>
-            <p class="field-hint">Mínimo 8 caracteres.</p>
-            <label class="check"><input type="checkbox" id="reg-terminos"> Acepto el tratamiento de mis datos personales</label>
-            <p class="form-error" id="reg-error" role="alert" hidden></p>
-            <button type="submit" class="btn btn-primary btn-block">Crear cuenta</button>
+            <p class="auth-nota">¿No tienes cuenta? El administrador de la clínica la crea por ti.</p>
           </form>
         </section>
       </div>

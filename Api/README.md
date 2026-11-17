@@ -46,7 +46,6 @@ Públicos:
 |---|---|---|
 | GET | `/api/publico/info` | Doctores, catálogo, especialidades, motivos, horario |
 | POST | `/api/auth/login` | `{correo, clave}` → `{token, usuario}` |
-| POST | `/api/auth/registro` | Solo administrador (o `REGISTRO_ABIERTO=true` para odontólogos) |
 
 Con sesión (`Authorization: Bearer <token>`). Un odontólogo solo ve y modifica su propia agenda; el administrador ve toda la clínica y puede filtrar con `?doctor=`.
 
