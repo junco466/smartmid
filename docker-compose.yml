@@ -1,0 +1,79 @@
+# ============================================================================
+#  Smart Mind en la Raspberry.
+#
+#  Este archivo dice CÓMO SE EJECUTA el contenedor (la receta de la imagen
+#  está en el Dockerfile).
+#
+#  Camino de una petición:
+#    Cloudflare Tunnel -> Caddy (localhost:8090) -> smartmind:3000
+#  Caddy llega a este contenedor por la red interna de Docker, así que no se
+#  publica ningún puerto en la Pi.
+#
+#  Comandos (desde ~/projects/smartmind):
+#    docker compose up -d --build   construir la imagen (si cambió) y arrancar
+#    docker compose restart         reiniciar
+#    docker compose down            detener y borrar el contenedor (la base
+#                                   en ./datos NO se borra)
+#    docker logs -f smartmind       ver los logs en vivo
+#
+#  NOMBRE DEL PROYECTO: compose usa el nombre de esta carpeta ("smartmind")
+#  como nombre del proyecto. La imagen que construye se llama
+#  <proyecto>-<servicio> = "smartmind-smartmind".
+# ============================================================================
+
+services:
+  # Nombre del SERVICIO dentro de este archivo. También es el nombre con el
+  # que otros contenedores de la misma red pueden encontrarlo (Caddy usa
+  # "smartmind:3000").
+  smartmind:
+    # Construye la imagen con el Dockerfile de esta misma carpeta (".").
+    # Como no hay "image:", compose le pone el nombre "smartmind-smartmind".
+    # "docker compose up" solo la construye si no existe; con --build la
+    # reconstruye (y gracias a la caché solo rehace los pasos que cambiaron).
+    build: .
+
+    # Nombre fijo del contenedor (si no, sería "smartmind-smartmind-1").
+    # Es el que usas en "docker logs smartmind".
+    container_name: smartmind
+
+    # Si la app se cae o la Pi se reinicia, Docker la vuelve a levantar.
+    # Solo se queda apagada si la detienes tú a mano.
+    restart: unless-stopped
+
+    # Carga las variables de Api/.env (WHAPI_TOKEN, JWT_SECRET, etc.) en el
+    # contenedor al arrancar. El .env no se mete en la imagen; se lee aquí.
+    env_file: Api/.env
+
+    # Variables que se imponen sobre las del .env y las de la imagen:
+    # garantizan el puerto y la ruta de la base aunque el .env diga otra cosa.
+    environment:
+      PORT: "3000"
+      DB_PATH: /app/datos/smartmind.db
+
+    # Monta la carpeta ./datos de la Pi dentro del contenedor en /app/datos.
+    # La base SQLite se guarda ahí: si borras o reconstruyes el contenedor,
+    # los datos siguen en la Pi. Para respaldarla, copia ./datos.
+    volumes:
+      - ./datos:/app/datos
+
+    # Conecta el contenedor a la red "caddy" (definida abajo), la misma red
+    # de Caddy, para que Caddy lo alcance como smartmind:3000.
+    networks:
+      - caddy
+
+    # Cada 60 s Docker pide /salud desde dentro del contenedor. Si falla 3
+    # veces seguidas, marca el contenedor como "unhealthy" (lo ves en
+    # "docker ps" y en Portainer / Uptime Kuma).
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/salud').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+networks:
+  # "caddy" es el nombre local de la red en este archivo. external: true
+  # significa que NO la crea este compose: ya existe (la creó el compose de
+  # Caddy) y su nombre real en Docker es "caddy_default".
+  caddy:
+    external: true
+    name: caddy_default

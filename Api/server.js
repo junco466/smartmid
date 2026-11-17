@@ -19,7 +19,7 @@ app.use(express.json());
 app.use("/api", rutasApi);
 
 // Página web (pacientes + panel), servida desde el mismo servidor: sin CORS y con una sola URL.
-app.use(express.static(path.join(__dirname, "..", "Home page")));
+app.use(express.static(path.join(__dirname, "..", "Homepage")));
 
 // Ids de mensajes ya procesados, para ignorar reintentos de Whapi.
 const procesados = new Set();
