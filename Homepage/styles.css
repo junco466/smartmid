@@ -153,20 +153,17 @@ main { flex: 1 0 auto; padding-top: 32px; }
 }
 .header-inner { display: flex; align-items: center; gap: 20px; min-height: var(--header-h); padding-block: 10px; }
 
-.brand { display: flex; flex-direction: column; min-width: 0; text-decoration: none; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; text-decoration: none; }
+/* Fondo blanco: el trazo azul oscuro del logo no se vería sobre el encabezado oscuro. */
+.brand-logo {
+  flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px;
+  background: #fff; box-shadow: 0 0 18px -4px rgba(24, 214, 200, .55);
+}
+.brand-logo img { display: block; width: 30px; height: 30px; }
 .brand-name {
-  display: inline-flex; align-items: center; gap: 10px;
   font-family: var(--font-head); font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em;
   color: #fff;
 }
-.brand-name::before {
-  content: ""; flex: none; width: 28px; height: 28px; border-radius: 9px;
-  background:
-    radial-gradient(circle at 50% 50%, var(--navy-900) 0 4px, transparent 4.5px),
-    linear-gradient(135deg, var(--cyan-400), var(--teal-600));
-  box-shadow: 0 0 18px -2px rgba(24, 214, 200, .55);
-}
-.brand-slogan { margin: 2px 0 0 38px; max-width: 320px; font-size: .72rem; line-height: 1.35; color: rgba(217, 251, 255, .55); }
 
 .view-switch {
   margin-left: auto; display: flex; gap: 2px; padding: 4px;
@@ -738,7 +735,6 @@ button.cal-event:hover { box-shadow: var(--shadow-md); transform: translateX(2px
 /* ---------- 16. Responsive ---------- */
 @media (max-width: 1100px) {
   .agenda-split { grid-template-columns: minmax(0, 1fr); }
-  .brand-slogan { display: none; }
 }
 
 @media (max-width: 960px) {
