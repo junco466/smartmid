@@ -1,0 +1,95 @@
+# Smart Mind · API
+
+Servidor Node/Express que une el chatbot de WhatsApp (Whapi) y el panel web sobre una sola base SQLite.
+
+Paso a paso para encenderlo con Whapi y ngrok: [INICIO.md](../INICIO.md). Guía de pruebas: [PRUEBAS.md](../PRUEBAS.md).
+
+```bash
+cp .env.example .env   # y completa WHAPI_TOKEN y JWT_SECRET
+npm install
+npm run dev
+```
+
+Datos de ejemplo (citas, cola y bloqueos), idealmente en una base aparte:
+
+```powershell
+$env:DB_PATH="smartmind-pruebas.db"; npm run demo     # solo si no hay citas
+npm run demo -- --forzar                              # borra citas, cola, bloqueos y mensajes y los crea de nuevo
+```
+
+- Web (pacientes + panel): `http://localhost:3000/`
+- Webhook de Whapi: `POST /webhook/whapi` (con `?secreto=` si defines `WHAPI_WEBHOOK_SECRET`)
+- Salud: `GET /salud`
+
+## Estructura
+
+| Archivo | Qué hace |
+|---|---|
+| `server.js` | Arranque, webhook, archivos estáticos |
+| `whapi.js` | Envío de mensajes por Whapi |
+| `src/config.js` | Horario de la clínica y datos con los que se llena una base nueva |
+| `src/db.js` | Esquema SQLite, migraciones y datos iniciales |
+| `src/agenda.js` | Reglas de agenda (cruces, bloqueos, re-agendamiento, estadísticas) |
+| `src/equipo.js` | Odontólogos, especialidades, procedimientos y motivos (administración) |
+| `scripts/demo.js` | Datos de ejemplo (`npm run demo`) |
+| `src/auth.js` | Login con JWT y alcance por rol |
+| `src/rutas.js` | Endpoints REST `/api/*` |
+| `src/bot.js` | Conversación del chatbot (pasos, sesiones guardadas en la base, pacientes recordados) |
+
+Fechas `AAAA-MM-DD`; horas en minutos desde la medianoche (`840` = 14:00). Los endpoints que reciben `inicio`, `desde` o `hasta` aceptan también `"14:00"`. Los teléfonos se guardan como `57XXXXXXXXXX`.
+
+## Endpoints
+
+Públicos:
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/publico/info` | Doctores, catálogo, especialidades, motivos, horario |
+| POST | `/api/auth/login` | `{correo, clave}` → `{token, usuario}` |
+
+Con sesión (`Authorization: Bearer <token>`). Un odontólogo solo ve y modifica su propia agenda; el administrador ve toda la clínica y puede filtrar con `?doctor=`.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/auth/me` | Usuario actual |
+| PUT | `/api/auth/clave` | `{actual, nueva}` → `{token}` nuevo; cierra las demás sesiones del usuario |
+| GET | `/api/doctores` | Odontólogos visibles |
+| GET / PUT | `/api/catalogo` | Procedimientos; PUT `{val: {duracion, precio}}` solo admin |
+| GET | `/api/disponibilidad?doctor&proc&fecha` | Horas libres del día |
+| GET | `/api/disponibilidad/proximos?doctor&proc&desde&max` | Próximos horarios libres |
+| GET | `/api/citas?doctor&fecha&desde&hasta&estado&telefono` | Listado |
+| GET | `/api/citas/:id` | Detalle |
+| POST | `/api/citas` | `{paciente, telefono, proc, doctor, fecha, inicio}` |
+| PATCH | `/api/citas/:id/asistencia` | `{estado: 'asistida' \| 'noasistio'}` |
+| POST | `/api/citas/:id/cancelar` | `{motivo, reagendar?}`; con `reagendar: false` solo se cancela, si no el paciente pasa a la cola |
+| GET | `/api/bloqueos?doctor&desde` | Listado |
+| GET | `/api/bloqueos/afectadas?doctor&fecha&tipo&desde&hasta` | Citas que se cancelarían |
+| POST | `/api/bloqueos` | `{doctor, fecha, tipo: completo \| parcial \| emergencia, desde?, hasta?, motivo?}` |
+| DELETE | `/api/bloqueos/:id` | Quitar bloqueo |
+| GET | `/api/cola` | Pacientes por re-agendar |
+| GET | `/api/cola/:id/opciones[?fecha]` | Sin fecha: `{original, sugeridos}` (original = su horario anterior si sigue libre). Con fecha: `{fecha, libres}` |
+| DELETE | `/api/cola/:id` | Quitar de la cola (el paciente no quiere nuevo horario) |
+| POST | `/api/cola/:id/reagendar` | `{fecha, inicio}` |
+| POST | `/api/cola/reagendar-auto` | `{ids?}`; horario anterior si sigue libre o el primero disponible. Devuelve `reagendados` y `sinCupoPacientes` |
+| GET | `/api/estadisticas` | Asistidas, canceladas, inasistencias, tasa, ocupación |
+| GET | `/api/mensajes` | Registro de mensajes de WhatsApp |
+| GET | `/api/notificaciones` | Notificaciones del panel |
+| POST | `/api/notificaciones/leer` | Marcar como leídas |
+| GET / PUT | `/api/config` | Automatizaciones; PUT solo admin |
+
+Solo administrador (equipo y servicios). PUT reemplaza todos los campos del registro:
+
+| Método | Ruta | Cuerpo |
+|---|---|---|
+| GET | `/api/admin/equipo` | Todo, incluidos los inactivos |
+| POST / PUT | `/api/admin/doctores[/:id]` | `{nombre, especialidades: [...], experiencia?, bio?, correo?, clave?, activo?}` |
+| POST / PUT | `/api/admin/especialidades[/:id]` | `{nombre, procs: [...], activo?}` |
+| POST / PUT | `/api/admin/procedimientos[/:id]` | `{nombre, duracion, precio, tipo?, especialidades?: [...], activo?}` |
+| POST / PUT | `/api/admin/motivos[/:id]` | `{motivo, especialidad, detalle?, activo?}` |
+| GET | `/api/admin/{doctores,especialidades,procedimientos,motivos}/:id/impacto` | Qué pasaría al eliminar: `{bloqueo, avisos, archivar}` |
+| DELETE | `/api/admin/{doctores,especialidades,procedimientos,motivos}/:id` | Elimina. Si tiene historial de citas, se oculta de todas las listas y el historial conserva el nombre |
+| POST | `/api/admin/bot/simular` | `{telefono?, texto}` → `{respuesta}`. Habla con el bot sin enviar WhatsApp |
+
+Un odontólogo con citas programadas no se puede desactivar ni eliminar. Los inactivos no aparecen en la página ni en el chatbot, y su cuenta no puede iniciar sesión.
+
+Errores: `{error: "mensaje"}` con 400 (datos), 401 (sin sesión), 403 (sin permiso), 404 o 409 (regla de agenda).

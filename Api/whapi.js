@@ -14,7 +14,9 @@ async function enviarMensaje(numero, mensaje) {
       body: JSON.stringify({
         to: numero,
         body: mensaje
-      })
+      }),
+      // Si Whapi no responde en 15 s, se aborta para no dejar el webhook colgado.
+      signal: AbortSignal.timeout(15000)
     }
   );
 
