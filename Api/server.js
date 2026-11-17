@@ -3,6 +3,7 @@ require("dotenv").config();
 // Todas las fechas y horas se calculan con la hora de Colombia.
 process.env.TZ = process.env.TZ || "America/Bogota";
 
+const fs = require("fs");
 const path = require("path");
 const express = require("express");
 
@@ -19,7 +20,21 @@ app.use(express.json());
 app.use("/api", rutasApi);
 
 // Página web (pacientes + panel), servida desde el mismo servidor: sin CORS y con una sola URL.
-app.use(express.static(path.join(__dirname, "..", "Homepage")));
+const WEB = path.join(__dirname, "..", "Homepage");
+
+// Cada arranque (cada despliegue) agrega una versión a los archivos que usa index.html
+// (styles.css?v=..., script.js?v=..., imágenes). Así el navegador descarga los nuevos
+// aunque tenga guardados los viejos en caché (Cloudflare les da 4 horas).
+const VERSION = Date.now().toString(36);
+const indexHtml = fs
+  .readFileSync(path.join(WEB, "index.html"), "utf8")
+  .replace(/(href|src)="(styles\.css|script\.js|favicon\.ico|img\/[^"?]+)"/g, `$1="$2?v=${VERSION}"`);
+app.get(["/", "/index.html"], (req, res) => {
+  res.set("Cache-Control", "no-cache");
+  res.type("html").send(indexHtml);
+});
+
+app.use(express.static(WEB));
 
 // Ids de mensajes ya procesados, para ignorar reintentos de Whapi.
 const procesados = new Set();

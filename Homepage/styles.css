@@ -156,10 +156,10 @@ main { flex: 1 0 auto; padding-top: 32px; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; text-decoration: none; }
 /* Fondo blanco: el trazo azul oscuro del logo no se vería sobre el encabezado oscuro. */
 .brand-logo {
-  flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px;
+  flex: none; display: grid; place-items: center; width: 46px; height: 46px; border-radius: 13px;
   background: #fff; box-shadow: 0 0 18px -4px rgba(24, 214, 200, .55);
 }
-.brand-logo img { display: block; width: 30px; height: 30px; }
+.brand-logo img { display: block; width: 38px; height: 38px; }
 .brand-name {
   font-family: var(--font-head); font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em;
   color: #fff;
